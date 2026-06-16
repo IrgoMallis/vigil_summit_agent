@@ -1,0 +1,45 @@
+# ---- Segredos / variáveis de ambiente ----
+.env
+.env.*
+!.env.example
+
+# ---- Banco de dados local (SQLite) ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# ---- Ambientes virtuais ----
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ---- Ferramentas / cache ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---- Streamlit ----
+.streamlit/secrets.toml
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.swp
+
+# ---- Sistema operacional ----
+.DS_Store
+Thumbs.db
+desktop.ini

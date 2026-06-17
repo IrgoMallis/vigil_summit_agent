@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# ---- Material de estudo pessoal (não versionar) ----
+Estudo_Vigil_Summit_Agent.pdf
+
 # ---- Banco de dados local (SQLite) ----
 *.db
 *.sqlite

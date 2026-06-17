@@ -108,8 +108,8 @@ flowchart TD
 
 | Camada | Escolha | Por quê |
 |--------|---------|---------|
-| **LLM** | **Claude 3.5 Sonnet** (`claude-3-5-sonnet-20241022`) | Preferência explícita do case (ecossistema Anthropic). Excelente em raciocínio estruturado, geração de JSON confiável e copywriting em português. |
-| **Orquestração do agente** | **SDK nativo da Anthropic** | Para um funil determinístico (etapas e gatilhos bem definidos), o SDK nativo dá **controle total e transparência** sobre cada prompt/resposta, sem a camada de abstração de um framework. `agno` está listado no `requirements` como caminho de evolução (tool-use/orquestração multiagente) quando a complexidade justificar. |
+| **LLM** | **Claude 3.5 Sonnet** (`claude-3-5-sonnet-20241022`), com camada **multi-provedor** | Preferência explícita do case (ecossistema Anthropic). A camada de LLM é abstraída (`_chat`) e configurável via `LLM_PROVIDER` no `.env`, suportando também **Groq** (compatível com OpenAI) para desenvolvimento/teste sem custo. A lógica do agente independe do provedor. |
+| **Orquestração do agente** | **SDK nativo (Anthropic / OpenAI-compat)** | Para um funil determinístico (etapas e gatilhos bem definidos), o SDK nativo dá **controle total e transparência** sobre cada prompt/resposta, sem a camada de abstração de um framework. `agno` está listado no `requirements` como caminho de evolução (tool-use/orquestração multiagente) quando a complexidade justificar. |
 | **Banco de dados** | **SQLite** | Relacional, zero-config, arquivo único — ideal para um protótipo **demonstrável e inspecionável** pela banca. O modelo de dados é portável para Postgres sem reescrever a lógica. |
 | **Captação (LP)** | **HTML/CSS/JS estático** | Hospedagem gratuita (GitHub Pages/Vercel/Netlify), carregamento rápido e **SEO para IA** via JSON-LD — relevante para indexação em buscas generativas (Perplexity, SearchGPT, Gemini). |
 | **Interface/Operação** | **Streamlit** | Painel funcional em Python puro, sem front-end dedicado. Cobre o opcional "painel de monitoramento" e "interface protegida por senha". |
@@ -244,8 +244,10 @@ A arquitetura já aponta para isso. As mudanças necessárias:
 cd vigil_summit_agent
 py -m pip install -r requirements.txt
 
-# 2. Configurar a chave da Anthropic no .env
-#    ANTHROPIC_API_KEY=seu_token_aqui   ->   seu token real
+# 2. Configurar o provedor de LLM e a chave no .env
+#    LLM_PROVIDER=anthropic   (padrao)  ou  groq  (gratuito p/ testes)
+#    ANTHROPIC_API_KEY=...    (se LLM_PROVIDER=anthropic)
+#    GROQ_API_KEY=...         (se LLM_PROVIDER=groq)
 #    (opcional) VIGIL_EVENT_DATE=2026-06-30
 #    (opcional) APP_PASSWORD=uma_senha   -> protege o painel
 
@@ -277,7 +279,7 @@ A **landing page** (`index.html`) abre direto no navegador ou pode ser publicada
   4. Clique em **"Fase 3 · Engajar + respostas"** → veja as mensagens geradas e leads virando `Confirmado`.
   5. Use **"🎬 Demo ponta a ponta"** para rodar todo o funil de uma vez.
   6. Em **Detalhe do lead**, inspecione o histórico de interações e simule respostas.
-- As ações de IA exigem `ANTHROPIC_API_KEY` válida no `.env`. Sem ela, o painel exibe o funil normalmente, mas as ações de geração ficam desabilitadas.
+- As ações de IA exigem a chave do provedor ativo no `.env` (`ANTHROPIC_API_KEY` ou `GROQ_API_KEY`, conforme `LLM_PROVIDER`). Sem ela, o painel exibe o funil normalmente, mas as ações de geração ficam desabilitadas.
 
 ---
 

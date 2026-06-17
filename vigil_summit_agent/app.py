@@ -58,24 +58,49 @@ database.init_db()
 
 
 # ----------------------------------------------------------------------
-# Proteção por senha (opcional): ativa só se APP_PASSWORD estiver no .env
+# Proteção por senha (login sempre ativo): acesso publico protegido por senha
 # ----------------------------------------------------------------------
-def check_password() -> bool:
-    senha_correta = os.getenv("APP_PASSWORD", "").strip()
-    if not senha_correta:
-        return True  # Sem senha configurada → acesso liberado.
+# Senha padrao usada se nada for configurado. Em deploy, defina APP_PASSWORD
+# em st.secrets (Streamlit Cloud) ou no .env.
+DEFAULT_PASSWORD = "vigil2026"
 
+
+def _senha_configurada() -> str:
+    # Prioridade: st.secrets (deploy) > variavel de ambiente (.env) > padrao.
+    try:
+        if "APP_PASSWORD" in st.secrets:
+            valor = str(st.secrets["APP_PASSWORD"]).strip()
+            if valor:
+                return valor
+    except Exception:
+        pass
+    return os.getenv("APP_PASSWORD", "").strip() or DEFAULT_PASSWORD
+
+
+def check_password() -> bool:
     if st.session_state.get("auth_ok"):
         return True
 
-    st.markdown("### 🔒 Acesso restrito")
-    senha = st.text_input("Senha de acesso", type="password")
-    if st.button("Entrar"):
-        if senha == senha_correta:
-            st.session_state["auth_ok"] = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta.")
+    senha_correta = _senha_configurada()
+
+    _, meio, _ = st.columns([1, 1.4, 1])
+    with meio:
+        st.markdown(
+            "<div style='text-align:center; padding-top:8vh'>"
+            "<h1 style='margin-bottom:0'>🛡️ Vigil Summit</h1>"
+            "<p style='color:#9aa1ad; margin-top:4px'>Painel do Agente Autônomo · acesso restrito</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        with st.form("login"):
+            senha = st.text_input("Senha de acesso", type="password", placeholder="••••••••")
+            entrar = st.form_submit_button("Entrar", use_container_width=True)
+        if entrar:
+            if senha == senha_correta:
+                st.session_state["auth_ok"] = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta. Tente novamente.")
     return False
 
 
@@ -108,8 +133,7 @@ def load_logs_df(lead_id: int | None = None) -> pd.DataFrame:
 
 
 def api_key_configurada() -> bool:
-    chave = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    return bool(chave) and chave != "seu_token_aqui"
+    return agent.llm_configurado()
 
 
 # ----------------------------------------------------------------------
@@ -130,21 +154,29 @@ leads_df = load_leads_df()
 # --- Aviso sobre API key ---------------------------------------------
 if not api_key_configurada():
     st.warning(
-        "⚠️ `ANTHROPIC_API_KEY` não configurada no `.env`. A visualização do "
-        "funil funciona normalmente, mas as ações que geram texto com o Claude "
-        "(enriquecer/engajar/follow-up) ficarão indisponíveis até você inserir "
-        "um token válido."
+        f"⚠️ API key do provedor ativo (`{agent.LLM_PROVIDER}`) não configurada "
+        "no `.env`. A visualização do funil funciona normalmente, mas as ações "
+        "que geram texto com o LLM (enriquecer/engajar/follow-up) ficarão "
+        "indisponíveis até você inserir um token válido."
     )
 
 # ======================================================================
 # SIDEBAR — contexto e captação (Fase 1)
 # ======================================================================
 with st.sidebar:
+    if st.button("🚪 Sair", use_container_width=True):
+        st.session_state.pop("auth_ok", None)
+        st.rerun()
+
     st.header("⚙️ Contexto do evento")
     st.metric("Data do Vigil Summit", agent.get_event_date().isoformat())
     dias = agent.dias_para_o_evento()
     st.metric("Dias para o evento", dias if dias >= 0 else f"{abs(dias)} (passou)")
     st.metric("Vagas totais", 120)
+    st.caption(
+        f"LLM: **{agent.LLM_PROVIDER}** · `{agent.modelo_ativo()}` · "
+        + ("✅ configurado" if agent.llm_configurado() else "⚠️ sem chave")
+    )
 
     st.divider()
     st.header("➕ Captar lead (Fase 1)")

@@ -36,11 +36,21 @@ from anthropic import Anthropic
 
 from database import get_connection, init_db
 
-# Carrega variáveis do .env (ANTHROPIC_API_KEY, VIGIL_EVENT_DATE).
+# Carrega variáveis do .env (chaves de API, provedor, data do evento).
 load_dotenv()
 
-# Modelo Claude 3.5 Sonnet.
-CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
+# ----------------------------------------------------------------------
+# Provedor de LLM (configurável via .env)
+# ----------------------------------------------------------------------
+# LLM_PROVIDER = "anthropic" (padrão, preferência do case) ou "groq" (gratuito).
+# O case dá preferência ao ecossistema Anthropic; o Groq fica disponível para
+# desenvolvimento/teste sem custo. A lógica do agente independe do provedor.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+
+# Modelos (sobrescritíveis via .env).
+CLAUDE_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Contexto de negócio da Vigil.AI usado em todos os System Prompts.
 VIGIL_CONTEXT = (
@@ -88,17 +98,70 @@ def dias_para_o_evento() -> int:
 
 
 # ----------------------------------------------------------------------
-# Cliente Anthropic
+# Camada de LLM (multi-provedor: Anthropic | Groq)
 # ----------------------------------------------------------------------
-def _get_client() -> Anthropic:
-    """Cria o cliente Anthropic validando a presença da API key."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key or api_key == "seu_token_aqui":
+def modelo_ativo() -> str:
+    """Nome do modelo em uso, conforme o provedor configurado."""
+    return GROQ_MODEL if LLM_PROVIDER == "groq" else CLAUDE_MODEL
+
+
+def _api_key_do_provedor() -> str:
+    var = "GROQ_API_KEY" if LLM_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
+    return os.getenv(var, "").strip()
+
+
+def llm_configurado() -> bool:
+    """True se a API key do provedor ativo estiver configurada no .env."""
+    chave = _api_key_do_provedor()
+    return bool(chave) and chave != "seu_token_aqui"
+
+
+def _chat(
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 1024,
+    temperature: float = 0.5,
+) -> str:
+    """
+    Envia uma conversa (system + user) ao provedor ativo e retorna o texto.
+
+    Abstrai Anthropic (SDK nativo) e Groq (endpoint compatível com OpenAI),
+    permitindo trocar de modelo apenas mudando LLM_PROVIDER no .env.
+    """
+    chave = _api_key_do_provedor()
+    if not chave or chave == "seu_token_aqui":
+        var = "GROQ_API_KEY" if LLM_PROVIDER == "groq" else "ANTHROPIC_API_KEY"
         raise RuntimeError(
-            "ANTHROPIC_API_KEY ausente ou não configurada no arquivo .env. "
-            "Edite o .env e insira um token válido da Anthropic."
+            f"{var} ausente ou não configurada no .env. "
+            f"Provedor ativo: '{LLM_PROVIDER}'. Edite o .env e insira um token válido."
         )
-    return Anthropic(api_key=api_key)
+
+    if LLM_PROVIDER == "groq":
+        # Groq é compatível com a API da OpenAI.
+        from openai import OpenAI
+
+        client = OpenAI(api_key=chave, base_url=GROQ_BASE_URL)
+        resposta = client.chat.completions.create(
+            model=GROQ_MODEL,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return (resposta.choices[0].message.content or "").strip()
+
+    # Provedor padrão: Anthropic (Claude).
+    client = Anthropic(api_key=chave)
+    message = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    return message.content[0].text.strip()
 
 
 # ----------------------------------------------------------------------
@@ -243,8 +306,6 @@ def enrich_lead_with_claude(nome: str, cargo_declarado: str, empresa: str) -> di
     Envia (nome, cargo_declarado, empresa) para o Claude e retorna um dict
     com as chaves: cargo_real, setor, tamanho_empresa, sinais_interesse.
     """
-    client = _get_client()
-
     system_prompt = (
         "Você é um agente de inteligência de mercado B2B especializado no "
         "mercado corporativo brasileiro.\n\n"
@@ -278,17 +339,9 @@ def enrich_lead_with_claude(nome: str, cargo_declarado: str, empresa: str) -> di
         f"- Empresa: {empresa or 'não informada'}"
     )
 
-    print(f"   🧠 Consultando o Claude sobre '{nome}' ({empresa})...")
+    print(f"   🧠 Consultando o LLM ({modelo_ativo()}) sobre '{nome}' ({empresa})...")
 
-    message = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=1024,
-        temperature=0.4,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-
-    raw_text = message.content[0].text.strip()
+    raw_text = _chat(system_prompt, user_prompt, max_tokens=1024, temperature=0.4)
     return _parse_claude_json(raw_text)
 
 
@@ -415,7 +468,6 @@ def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
     `step` deve conter: canal, tipo_mensagem, objetivo.
     Retorna dict {"assunto": str, "mensagem": str} (assunto vazio no WhatsApp).
     """
-    client = _get_client()
     canal = step["canal"]
 
     if canal == "WhatsApp":
@@ -484,15 +536,8 @@ def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
 
     print(f"   ✍️  Gerando mensagem ({step['tipo_mensagem']} via {canal})...")
 
-    message = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=700,
-        temperature=0.7,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-
-    data = _extract_json(message.content[0].text.strip())
+    raw_text = _chat(system_prompt, user_prompt, max_tokens=700, temperature=0.7)
+    data = _extract_json(raw_text)
     return {
         "assunto": data.get("assunto", "") or "",
         "mensagem": data.get("mensagem", "").strip(),

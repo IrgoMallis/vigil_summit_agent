@@ -1,5 +1,6 @@
 streamlit
 anthropic
+openai
 agno
 python-dotenv
 pandas

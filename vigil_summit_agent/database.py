@@ -48,12 +48,21 @@ def init_db() -> None:
                 tamanho_empresa     TEXT,
                 linkedin_perfil     TEXT,
                 sinais_interesse    TEXT,
+                origem              TEXT    DEFAULT 'Remarketing',
                 status_funil        TEXT    DEFAULT 'Inscrito',
                 data_inscricao      DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             """
         )
+
+        # Migração leve: garante a coluna `origem` em bancos já existentes
+        # (CREATE TABLE IF NOT EXISTS não altera tabelas pré-existentes).
+        colunas_leads = [linha[1] for linha in cursor.execute("PRAGMA table_info(leads);")]
+        if "origem" not in colunas_leads:
+            cursor.execute(
+                "ALTER TABLE leads ADD COLUMN origem TEXT DEFAULT 'Remarketing';"
+            )
 
         cursor.execute(
             """
@@ -101,9 +110,14 @@ def insert_lead(
     tamanho_empresa: Optional[str] = None,
     linkedin_perfil: Optional[str] = None,
     sinais_interesse: Optional[str] = None,
+    origem: str = "LP_Organico",
     status_funil: str = "Inscrito",
 ) -> Optional[int]:
-    """Insere um lead. Retorna o id criado ou None se o e-mail já existir."""
+    """Insere um lead. Retorna o id criado ou None se o e-mail já existir.
+
+    `origem` define o segmento de comunicação ('LP_Organico' para leads novos
+    captados pela landing page; 'Remarketing' para base de edições anteriores).
+    """
     conn = get_connection()
     try:
         cursor = conn.cursor()
@@ -112,8 +126,8 @@ def insert_lead(
             INSERT INTO leads (
                 nome, email, telefone, cargo_declarado, empresa,
                 cargo_real, setor, tamanho_empresa, linkedin_perfil,
-                sinais_interesse, status_funil
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                sinais_interesse, origem, status_funil
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 nome,
@@ -126,6 +140,7 @@ def insert_lead(
                 tamanho_empresa,
                 linkedin_perfil,
                 sinais_interesse,
+                origem,
                 status_funil,
             ),
         )
@@ -152,6 +167,7 @@ def seed_test_leads() -> None:
             "tamanho_empresa": "51-200",
             "linkedin_perfil": "https://www.linkedin.com/in/ramon-pareto",
             "sinais_interesse": "Baixou material sobre IA aplicada a vendas",
+            "origem": "LP_Organico",
             "status_funil": "Inscrito",
         },
         {
@@ -165,6 +181,7 @@ def seed_test_leads() -> None:
             "tamanho_empresa": "201-500",
             "linkedin_perfil": "https://www.linkedin.com/in/mariana-lima",
             "sinais_interesse": "Participou de webinar anterior; abriu 3 e-mails",
+            "origem": "Remarketing",
             "status_funil": "Confirmado",
         },
         {
@@ -178,6 +195,7 @@ def seed_test_leads() -> None:
             "tamanho_empresa": "1000+",
             "linkedin_perfil": "https://www.linkedin.com/in/carlos-mendes",
             "sinais_interesse": "Clicou no link de inscrição via WhatsApp",
+            "origem": "Remarketing",
             "status_funil": "Inscrito",
         },
     ]

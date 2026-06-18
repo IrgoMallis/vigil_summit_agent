@@ -285,10 +285,12 @@ def get_enriched_inscritos() -> list[sqlite3.Row]:
 
 def update_lead_enrichment(lead_id: int, enriquecimento: dict) -> None:
     """Atualiza a tabela `leads` com os dados enriquecidos pelo LLM."""
+    linkedin = enriquecimento.get("linkedin_perfil") or None
     _execute(
         """
         UPDATE leads
-        SET cargo_real = ?, setor = ?, tamanho_empresa = ?, sinais_interesse = ?
+        SET cargo_real = ?, setor = ?, tamanho_empresa = ?,
+            sinais_interesse = ?, linkedin_perfil = COALESCE(?, linkedin_perfil)
         WHERE id = ?;
         """,
         (
@@ -296,6 +298,7 @@ def update_lead_enrichment(lead_id: int, enriquecimento: dict) -> None:
             enriquecimento["setor"],
             enriquecimento["tamanho_empresa"],
             enriquecimento["sinais_interesse"],
+            linkedin,
             lead_id,
         ),
     )
@@ -359,13 +362,16 @@ def _extract_json(raw_text: str) -> dict:
 
 
 def _parse_enrichment_json(raw_text: str) -> dict:
-    """Valida o JSON de enriquecimento (Fase 2) com as 4 chaves esperadas."""
+    """Valida o JSON de enriquecimento (Fase 2) com as chaves esperadas."""
     data = _extract_json(raw_text)
-    chaves_esperadas = {"cargo_real", "setor", "tamanho_empresa", "sinais_interesse"}
-    faltando = chaves_esperadas - data.keys()
+    chaves_obrigatorias = {"cargo_real", "setor", "tamanho_empresa", "sinais_interesse"}
+    faltando = chaves_obrigatorias - data.keys()
     if faltando:
         raise ValueError(f"Resposta do LLM sem as chaves: {faltando}")
-    return {chave: data[chave] for chave in chaves_esperadas}
+    resultado = {chave: data[chave] for chave in chaves_obrigatorias}
+    if "linkedin_perfil" in data:
+        resultado["linkedin_perfil"] = data["linkedin_perfil"]
+    return resultado
 
 
 # ======================================================================
@@ -394,12 +400,15 @@ def enrich_lead_profile(nome: str, cargo_declarado: str, empresa: str) -> dict:
         "(Ex.: '+200 funcionários', '+500 funcionários', '+1000 funcionários').\n"
         "- sinais_interesse: prováveis dores de cibersegurança e conformidade "
         "dessa persona/empresa (Ex.: 'Preocupação com vazamento de dados de "
-        "clientes no varejo e conformidade estrita com a LGPD').\n\n"
+        "clientes no varejo e conformidade estrita com a LGPD').\n"
+        "- linkedin_perfil: URL provável do perfil LinkedIn público deduzido "
+        "a partir do nome e empresa (formato https://www.linkedin.com/in/...). "
+        "Se não houver base razoável, use string vazia.\n\n"
         "REGRAS DE SAÍDA (OBRIGATÓRIAS):\n"
         "- Responda EXCLUSIVAMENTE com um objeto JSON válido, sem nenhum texto "
         "antes ou depois, sem markdown e sem cercas de código.\n"
         "- Use EXATAMENTE estas chaves: \"cargo_real\", \"setor\", "
-        "\"tamanho_empresa\", \"sinais_interesse\".\n"
+        "\"tamanho_empresa\", \"sinais_interesse\", \"linkedin_perfil\".\n"
         "- Todos os valores devem ser strings em português."
     )
 
@@ -447,6 +456,8 @@ def run_enrichment_pipeline() -> None:
             print(f"      • setor ............: {enriquecimento['setor']}")
             print(f"      • tamanho_empresa ..: {enriquecimento['tamanho_empresa']}")
             print(f"      • sinais_interesse .: {enriquecimento['sinais_interesse']}")
+            if enriquecimento.get("linkedin_perfil"):
+                print(f"      • linkedin_perfil ..: {enriquecimento['linkedin_perfil']}")
             update_lead_enrichment(lead["id"], enriquecimento)
             print("   💾 Banco atualizado com sucesso.\n")
             sucessos += 1
@@ -547,6 +558,21 @@ def _instrucao_se_nao_confirmou(lead: sqlite3.Row, step: dict) -> str:
     )
 
 
+def _instrucao_sem_resposta_anterior(lead_id: int) -> str:
+    """Reforço quando a última mensagem enviada não teve resposta do lead."""
+    ultima = get_last_interaction(lead_id)
+    if ultima is None:
+        return ""
+    resposta = ultima["resposta_lead"]
+    if resposta is not None and str(resposta).strip():
+        return ""
+    return (
+        "\n\nATENÇÃO: o lead NÃO respondeu à mensagem anterior. "
+        "Relembre o valor do evento de forma mais direta e inclua um CTA claro "
+        "(ex.: pedir confirmação ou resposta objetiva)."
+    )
+
+
 def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
     """
     Gera uma mensagem personalizada via LLM para uma etapa da régua.
@@ -580,7 +606,8 @@ def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
         f"PERFIL DO LEAD:\n{_perfil_do_lead(lead)}\n\n"
         f"{_instrucao_de_segmento(_segmento_do_lead(lead))}\n\n"
         f"OBJETIVO DESTA MENSAGEM:\n{step['objetivo']}{_instrucao_de_compromisso(step)}"
-        f"{_instrucao_se_nao_confirmou(lead, step)}\n\n"
+        f"{_instrucao_se_nao_confirmou(lead, step)}"
+        f"{_instrucao_sem_resposta_anterior(lead['id'])}\n\n"
         "Gere a mensagem agora."
     )
 
@@ -775,8 +802,23 @@ def _registrar_resposta(lead_id: int, resposta: str) -> None:
 
 
 def _confirma_presenca(resposta: str) -> bool:
-    """A resposta corresponde ao gatilho de compromisso? (tolerante a caixa/espaços)."""
-    return resposta.strip().lower() == CONFIRMATION_PHRASE.lower()
+    """Confirma presença por frase exata ou classificação de intenção via LLM."""
+    if resposta.strip().lower() == CONFIRMATION_PHRASE.lower():
+        return True
+    if not llm_configurado():
+        return False
+    try:
+        system_prompt = (
+            "Você classifica respostas de leads sobre confirmação de presença em evento. "
+            "Responda APENAS JSON: {\"confirma\": true} se a mensagem indica que a pessoa "
+            "vai comparecer; {\"confirma\": false} caso contrário."
+        )
+        user_prompt = f"Mensagem do lead: \"{resposta.strip()}\""
+        raw = _chat(system_prompt, user_prompt, 64, 0.0)
+        data = _extract_json(raw)
+        return bool(data.get("confirma"))
+    except Exception:
+        return False
 
 
 def receive_lead_response(lead_id: int, resposta: str) -> None:

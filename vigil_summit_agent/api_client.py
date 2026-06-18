@@ -1,11 +1,9 @@
 """
 api_client.py
 -------------
-Cliente HTTP opcional para ler leads da API de captação (Render) quando o
-painel Streamlit roda na nuvem com banco separado do SQLite local.
+Cliente HTTP para o painel Streamlit operar a API remota (Render).
 
-Configure VIGIL_API_URL (e opcionalmente VIGIL_API_KEY) no .env ou nos
-Secrets do Streamlit Cloud.
+Configure VIGIL_API_URL e VIGIL_API_KEY no .env ou Secrets do Streamlit Cloud.
 """
 
 from __future__ import annotations
@@ -58,7 +56,7 @@ def _request(caminho: str, metodo: str = "GET", payload: dict | None = None) -> 
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=dados, headers=headers, method=metodo)
     try:
-        with urllib.request.urlopen(req, timeout=90) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as erro:
         corpo = erro.read().decode("utf-8", errors="replace")
@@ -69,17 +67,14 @@ def _request(caminho: str, metodo: str = "GET", payload: dict | None = None) -> 
         raise RuntimeError(str(detalhe)) from erro
     except urllib.error.URLError as erro:
         raise RuntimeError(
-            "API de captação indisponível. Se usar Render free tier, "
-            "aguarde ~1 minuto (cold start) e tente novamente."
+            "API indisponível. Render free tier pode levar ~1 min (cold start)."
         ) from erro
 
 
 def fetch_leads_df() -> pd.DataFrame:
     dados = _request("/api/leads")
     leads = dados.get("leads", [])
-    if not leads:
-        return pd.DataFrame()
-    return pd.DataFrame(leads)
+    return pd.DataFrame(leads) if leads else pd.DataFrame()
 
 
 def fetch_logs_df(lead_id: int | None = None) -> pd.DataFrame:
@@ -88,10 +83,28 @@ def fetch_logs_df(lead_id: int | None = None) -> pd.DataFrame:
         caminho = f"{caminho}?lead_id={lead_id}"
     dados = _request(caminho)
     logs = dados.get("interactions", [])
-    if not logs:
-        return pd.DataFrame()
-    return pd.DataFrame(logs)
+    return pd.DataFrame(logs) if logs else pd.DataFrame()
 
 
 def registrar_inscricao(payload: dict) -> dict:
     return _request("/api/inscricao", metodo="POST", payload=payload)
+
+
+def atualizar_status(lead_id: int, status_funil: str) -> dict:
+    return _request(
+        f"/api/leads/{lead_id}/status",
+        metodo="PATCH",
+        payload={"status_funil": status_funil},
+    )
+
+
+def registrar_resposta(lead_id: int, resposta: str) -> dict:
+    return _request(
+        f"/api/leads/{lead_id}/response",
+        metodo="POST",
+        payload={"resposta": resposta},
+    )
+
+
+def executar_agente(acao: str) -> dict:
+    return _request(f"/api/agent/{acao}", metodo="POST", payload={})

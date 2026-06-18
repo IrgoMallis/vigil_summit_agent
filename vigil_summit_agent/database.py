@@ -68,6 +68,10 @@ def init_db() -> None:
             cursor.execute(
                 "ALTER TABLE leads ADD COLUMN origem TEXT DEFAULT 'Remarketing';"
             )
+        if "evento_id" not in colunas_leads:
+            cursor.execute(
+                "ALTER TABLE leads ADD COLUMN evento_id TEXT DEFAULT 'vigil_summit_2026';"
+            )
 
         cursor.execute(
             """

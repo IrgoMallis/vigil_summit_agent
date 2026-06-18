@@ -321,40 +321,44 @@ def render_visao_geral(leads_df: pd.DataFrame) -> None:
 
 def render_operacao(leads_df: pd.DataFrame) -> None:
     """Botões que disparam os pipelines do agente (Fases 2–4)."""
-    if api_client.modo_remoto():
-        st.info(
-            "Modo nuvem: leads e interações são lidos da **API no Render** "
-            f"(`{api_client.base_url()}`). Para enriquecer, engajar e rodar a demo "
-            "completa, use localmente: `py run_dev.py`."
-        )
-        return
+    remoto = api_client.modo_remoto()
 
-    if not api_key_configurada():
+    if remoto:
+        st.caption(
+            f"Modo nuvem: operações executadas na API `{api_client.base_url()}` "
+            "(configure LLM no Render)."
+        )
+    elif not api_key_configurada():
         st.info(
             f"As ações de IA exigem a chave do provedor **{agent.LLM_PROVIDER}** no `.env`. "
             "Sem ela, o funil é exibido normalmente, mas a geração de texto fica indisponível."
         )
 
     acoes = [
-        ("Fase 2 · Enriquecer", "Enriquecendo leads com o LLM...",
+        ("Fase 2 · Enriquecer", "Enriquecendo leads com o LLM...", "enrich",
          agent.run_enrichment_pipeline, "Enriquecimento concluído."),
-        ("Fase 3 · Engajar + respostas", "Gerando confirmações e simulando respostas...",
+        ("Fase 3 · Engajar + respostas", "Gerando confirmações e simulando respostas...", "engage",
          agent.run_engagement_with_simulated_responses, "Engajamento concluído."),
-        ("Fase 4 · Follow-up", "Gerando follow-up pós-evento...",
+        ("Fase 4 · Follow-up", "Gerando follow-up pós-evento...", "post",
          lambda: agent.run_post_event_sequence(simular_sequencia_completa=True),
          "Follow-up concluído."),
-        ("🎬 Demo ponta a ponta", "Rodando funil completo...",
+        ("🎬 Demo ponta a ponta", "Rodando funil completo...", "demo",
          agent.run_full_funnel_demo, "Demo concluída."),
     ]
 
-    desativadas = not api_key_configurada()
-    for coluna, (rotulo, spinner, executar, sucesso) in zip(st.columns(len(acoes)), acoes):
+    desativadas = not remoto and not api_key_configurada()
+    for coluna, (rotulo, spinner, acao_api, executar, sucesso) in zip(st.columns(len(acoes)), acoes):
         with coluna:
             if not st.button(rotulo, disabled=desativadas, width="stretch"):
                 continue
             with st.spinner(spinner):
                 try:
-                    executar()
+                    if remoto:
+                        resultado = api_client.executar_agente(acao_api)
+                        if resultado.get("log"):
+                            st.code(resultado["log"], language=None)
+                    else:
+                        executar()
                     st.success(sucesso)
                 except Exception as erro:
                     st.error(f"Falha: {erro}")
@@ -453,10 +457,41 @@ def render_detalhe_do_lead(leads_df: pd.DataFrame) -> None:
             )
             st.markdown(f"**Inscrição:** {formatar_data(lead['data_inscricao'])}")
             st.markdown(f"**Sinais de interesse:** {lead['sinais_interesse'] or '—'}")
+            try:
+                perfil_li = (lead["linkedin_perfil"] or "").strip()
+            except (KeyError, TypeError):
+                perfil_li = ""
+            if perfil_li:
+                st.markdown(f"**LinkedIn:** {perfil_li}")
 
     with acoes_col:
         if remoto:
-            st.info("No modo nuvem, alterações de status e simulações rodam via `py run_dev.py` local.")
+            with st.container(border=True):
+                st.markdown("**Gerenciar estágio no funil**")
+                indice = STATUS_ORDER.index(lead["status_funil"]) if lead["status_funil"] in STATUS_ORDER else 0
+                novo_status = st.selectbox("Status", STATUS_ORDER, index=indice, key=f"status_{lead_id}")
+                if st.button("Atualizar status", key=f"upd_{lead_id}", width="stretch"):
+                    try:
+                        api_client.atualizar_status(lead_id, novo_status)
+                        st.success(f"Status atualizado para '{novo_status}'.")
+                        st.rerun()
+                    except RuntimeError as erro:
+                        st.error(str(erro))
+
+            with st.container(border=True):
+                st.markdown("**Simular resposta do lead (WhatsApp)**")
+                st.caption(f"Dica: a frase de compromisso é \"{agent.CONFIRMATION_PHRASE}\".")
+                resposta = st.text_input("Resposta recebida", key=f"resp_{lead_id}")
+                if st.button("Registrar resposta", key=f"send_{lead_id}", width="stretch"):
+                    if resposta.strip():
+                        try:
+                            api_client.registrar_resposta(lead_id, resposta.strip())
+                            st.success("Resposta registrada.")
+                            st.rerun()
+                        except RuntimeError as erro:
+                            st.error(str(erro))
+                    else:
+                        st.error("Digite uma resposta.")
         else:
             with st.container(border=True):
                 st.markdown("**Gerenciar estágio no funil**")

@@ -1,5 +1,5 @@
-# Deploy da API de captação (LP + POST /api/inscricao) no Render.
-# Conecte o repositório em https://dashboard.render.com e aplique este blueprint.
+# Deploy da API (LP + agente + scheduler) no Render.
+# https://render.com/deploy?repo=https://github.com/IrgoMallis/vigil_summit_agent
 services:
   - type: web
     name: vigil-summit-api
@@ -12,5 +12,13 @@ services:
     envVars:
       - key: CORS_ORIGINS
         value: "*"
+      - key: ENABLE_SCHEDULER
+        value: "true"
+      - key: LLM_PROVIDER
+        value: anthropic
       - key: VIGIL_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
         sync: false

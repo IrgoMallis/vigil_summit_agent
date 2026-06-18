@@ -279,21 +279,29 @@ A **landing page** (`index.html`) é servida pelo **`api.py`** (FastAPI) em `htt
 |------------|------|-----|
 | **Landing Page** | GitHub Pages | https://irgomallis.github.io/vigil_summit_agent/ |
 | **API de captação** | Render (blueprint `render.yaml`) | https://vigil-summit-api.onrender.com |
-| **Painel Streamlit** | Streamlit Community Cloud | https://share.streamlit.io → ver passo 3 abaixo |
+| **Painel Streamlit** | Streamlit Community Cloud | https://vigilsummitagent.streamlit.app/ |
 
 1. **GitHub Pages** — ativado via GitHub Actions (workflow `.github/workflows/pages.yml`). A LP envia inscrições para a API no Render.
-2. **Render** — clique em [Deploy to Render](https://render.com/deploy?repo=https://github.com/IrgoMallis/vigil_summit_agent) ou conecte o repo em [dashboard.render.com](https://dashboard.render.com). Configure `GROQ_API_KEY` nos Environment Variables. Sem a API no ar, o formulário da LP online não grava leads.
-3. **Streamlit Cloud** — acesse [share.streamlit.io](https://share.streamlit.io) → **Create app** → repo `IrgoMallis/vigil_summit_agent`, branch `main`, **Main file path:** `vigil_summit_agent/app.py`. Em **Advanced settings**, working directory: `vigil_summit_agent`. Em **Secrets**, cole as variáveis do `.env.example` (com chaves reais).
+2. **Render (obrigatório para o formulário online)** — clique em [Deploy to Render](https://render.com/deploy?repo=https://github.com/IrgoMallis/vigil_summit_agent) ou conecte o repo em [dashboard.render.com](https://dashboard.render.com). Configure **`GROQ_API_KEY`** e, opcionalmente, **`VIGIL_API_KEY`** (mesma chave usada no Streamlit). Sem a API no ar, o formulário da LP retorna erro de conexão. O free tier pode levar ~1 minuto no primeiro acesso (cold start).
+3. **Streamlit Cloud** — app em [vigilsummitagent.streamlit.app](https://vigilsummitagent.streamlit.app/). Em **Secrets**, configure no mínimo:
 
-> **Nota:** localmente LP + painel compartilham o mesmo SQLite. Na nuvem, a API (Render) e o painel (Streamlit Cloud) usam instâncias separadas — inscrições pela LP ficam na API até integrar um banco compartilhado (Postgres), previsto no plano de escala do README.
+```toml
+GROQ_API_KEY = "sua_chave"
+LLM_PROVIDER = "groq"
+APP_PASSWORD = "vigil2026"
+VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
+VIGIL_API_KEY = "mesma_chave_definida_no_Render"
+```
+
+Com `VIGIL_API_URL`, o painel na nuvem **lê os leads inscritos pela LP** (API Render). Para operar Fases 2–4 com o mesmo banco, use localmente: `py run_dev.py`.
+
+> **Nota:** localmente LP + painel compartilham o mesmo SQLite. Na nuvem, a API (Render) persiste inscrições; o painel Streamlit lê via API quando `VIGIL_API_URL` está configurado. Operações completas do agente (enriquecer, engajar, demo) rodam via `run_dev.py` local ou após integrar banco compartilhado (Postgres), previsto no plano de escala.
 
 ---
 
 ## 10. Como testar (acesso para a Pareto)
 
-> **Adendo sobre o LLM usado nos testes.** Todo o projeto foi desenvolvido e testado usando o **Groq** (`llama-3.3-70b-versatile`) como provedor de LLM, aproveitando o **free tier** para validar o funil ponta a ponta sem custo. Para que a avaliação rode de imediato, **já deixei uma chave Groq de teste** no `.env.example` (`LLM_PROVIDER=groq`) — basta copiá-lo para `.env` e tudo funciona.
->
-> Fiquem à vontade para integrar a **Anthropic (Claude 3.5 Sonnet)**, que considero a **melhor opção** para a qualidade do copy e do enriquecimento — a camada de LLM é abstraída (`_chat`), então é só trocar `LLM_PROVIDER=anthropic` e informar a `ANTHROPIC_API_KEY`. Optei pelo Groq na fase de desenvolvimento por uma questão de custo durante os testes. 😄
+> **Adendo sobre o LLM usado nos testes.** Todo o projeto foi desenvolvido e testado usando o **Groq** (`llama-3.3-70b-versatile`) como provedor de LLM, aproveitando o **free tier** para validar o funil ponta a ponta sem custo. Copie o `.env.example` para `.env` e preencha `GROQ_API_KEY` (ou use `LLM_PROVIDER=anthropic` com `ANTHROPIC_API_KEY` para Claude 3.5 Sonnet).
 
 - **Acesso ao painel (login):** o painel é protegido por **login de usuário + senha**. Na primeira execução, um usuário inicial é criado automaticamente:
   - **Usuário:** `admin` · **Senha:** `vigil2026` (ou o valor de `APP_PASSWORD`, se definido).

@@ -6,7 +6,7 @@ services:
     runtime: python
     rootDir: vigil_summit_agent
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && cp ../index.html ./index.html
     startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
@@ -16,3 +16,5 @@ services:
         sync: false
       - key: LLM_PROVIDER
         value: groq
+      - key: VIGIL_API_KEY
+        sync: false

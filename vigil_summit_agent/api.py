@@ -15,9 +15,10 @@ e o lead aparece no painel (py -m streamlit run app.py).
 
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -29,6 +30,10 @@ load_dotenv()
 # index.html fica na raiz do repositório (um nível acima desta pasta).
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INDEX_HTML = REPO_ROOT / "index.html"
+if not INDEX_HTML.is_file():
+    INDEX_HTML = Path(__file__).resolve().parent / "index.html"
+
+API_KEY = os.getenv("VIGIL_API_KEY", "").strip()
 
 app = FastAPI(title="Vigil Summit · Captação", version="1.0")
 
@@ -52,6 +57,18 @@ class InscricaoPayload(BaseModel):
     telefone: str = Field(min_length=8, max_length=50)
 
 
+def _verificar_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Exige X-API-Key quando VIGIL_API_KEY estiver configurada."""
+    if not API_KEY:
+        return
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente.")
+
+
+def _linha_para_dict(linha) -> dict[str, Any]:
+    return {chave: linha[chave] for chave in linha.keys()}
+
+
 @app.on_event("startup")
 def startup() -> None:
     database.init_db()
@@ -67,7 +84,7 @@ def landing_page():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "vigil-summit-api"}
 
 
 @app.post("/api/inscricao")
@@ -85,3 +102,33 @@ def registrar_inscricao(payload: InscricaoPayload):
     if lead_id is None:
         raise HTTPException(status_code=409, detail="Este e-mail já está inscrito.")
     return {"ok": True, "lead_id": lead_id, "mensagem": "Inscrição recebida com sucesso."}
+
+
+@app.get("/api/leads", dependencies=[Depends(_verificar_api_key)])
+def listar_leads():
+    """Lista leads para o painel Streamlit na nuvem (mesma origem da LP)."""
+    conn = database.get_connection()
+    try:
+        linhas = conn.execute("SELECT * FROM leads ORDER BY id;").fetchall()
+    finally:
+        conn.close()
+    return {"leads": [_linha_para_dict(linha) for linha in linhas]}
+
+
+@app.get("/api/interactions", dependencies=[Depends(_verificar_api_key)])
+def listar_interacoes(lead_id: int | None = Query(default=None)):
+    """Lista interações registradas pelo agente."""
+    conn = database.get_connection()
+    try:
+        if lead_id is None:
+            linhas = conn.execute(
+                "SELECT * FROM interaction_logs ORDER BY id DESC;"
+            ).fetchall()
+        else:
+            linhas = conn.execute(
+                "SELECT * FROM interaction_logs WHERE lead_id = ? ORDER BY id DESC;",
+                (lead_id,),
+            ).fetchall()
+    finally:
+        conn.close()
+    return {"interactions": [_linha_para_dict(linha) for linha in linhas]}

@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 
 import database
 import agent
+import api_client
 
 load_dotenv()
 
@@ -135,6 +136,12 @@ def check_password() -> bool:
 # Acesso a dados
 # ----------------------------------------------------------------------
 def load_leads_df() -> pd.DataFrame:
+    if api_client.modo_remoto():
+        try:
+            return api_client.fetch_leads_df()
+        except RuntimeError as erro:
+            st.error(str(erro))
+            return pd.DataFrame()
     conn = database.get_connection()
     try:
         return pd.read_sql_query("SELECT * FROM leads ORDER BY id;", conn)
@@ -143,6 +150,12 @@ def load_leads_df() -> pd.DataFrame:
 
 
 def load_logs_df(lead_id: int | None = None) -> pd.DataFrame:
+    if api_client.modo_remoto():
+        try:
+            return api_client.fetch_logs_df(lead_id)
+        except RuntimeError as erro:
+            st.error(str(erro))
+            return pd.DataFrame()
     conn = database.get_connection()
     try:
         if lead_id is None:
@@ -204,6 +217,21 @@ def render_sidebar() -> None:
             return
         if not nome or not email:
             st.error("Nome e e-mail são obrigatórios.")
+            return
+        if api_client.modo_remoto():
+            try:
+                resultado = api_client.registrar_inscricao({
+                    "nome": nome.strip(),
+                    "email": email.strip(),
+                    "cargo": (cargo or "Não informado").strip(),
+                    "setor": (setor or "Outro").strip(),
+                    "empresa": (empresa or "Não informado").strip(),
+                    "telefone": (telefone or "+5500000000000").strip(),
+                })
+                st.success(f"Lead #{resultado.get('lead_id')} inscrito na API!")
+                st.rerun()
+            except RuntimeError as erro:
+                st.error(str(erro))
             return
         novo_id = database.insert_lead(
             nome=nome,
@@ -293,6 +321,14 @@ def render_visao_geral(leads_df: pd.DataFrame) -> None:
 
 def render_operacao(leads_df: pd.DataFrame) -> None:
     """Botões que disparam os pipelines do agente (Fases 2–4)."""
+    if api_client.modo_remoto():
+        st.info(
+            "Modo nuvem: leads e interações são lidos da **API no Render** "
+            f"(`{api_client.base_url()}`). Para enriquecer, engajar e rodar a demo "
+            "completa, use localmente: `py run_dev.py`."
+        )
+        return
+
     if not api_key_configurada():
         st.info(
             f"As ações de IA exigem a chave do provedor **{agent.LLM_PROVIDER}** no `.env`. "
@@ -396,7 +432,11 @@ def render_detalhe_do_lead(leads_df: pd.DataFrame) -> None:
     }
     escolha = st.selectbox("Selecione um lead", list(opcoes.keys()))
     lead_id = opcoes[escolha]
-    lead = agent.get_lead_by_id(lead_id)
+    remoto = api_client.modo_remoto()
+    if remoto:
+        lead = leads_df.loc[leads_df["id"] == lead_id].iloc[0]
+    else:
+        lead = agent.get_lead_by_id(lead_id)
 
     perfil_col, acoes_col = st.columns([1, 1])
     with perfil_col:
@@ -415,26 +455,29 @@ def render_detalhe_do_lead(leads_df: pd.DataFrame) -> None:
             st.markdown(f"**Sinais de interesse:** {lead['sinais_interesse'] or '—'}")
 
     with acoes_col:
-        with st.container(border=True):
-            st.markdown("**Gerenciar estágio no funil**")
-            indice = STATUS_ORDER.index(lead["status_funil"]) if lead["status_funil"] in STATUS_ORDER else 0
-            novo_status = st.selectbox("Status", STATUS_ORDER, index=indice, key=f"status_{lead_id}")
-            if st.button("Atualizar status", key=f"upd_{lead_id}", width="stretch"):
-                agent.update_lead_status(lead_id, novo_status)
-                st.success(f"Status atualizado para '{novo_status}'.")
-                st.rerun()
-
-        with st.container(border=True):
-            st.markdown("**Simular resposta do lead (WhatsApp)**")
-            st.caption(f"Dica: a frase de compromisso é \"{agent.CONFIRMATION_PHRASE}\".")
-            resposta = st.text_input("Resposta recebida", key=f"resp_{lead_id}")
-            if st.button("Registrar resposta", key=f"send_{lead_id}", width="stretch"):
-                if resposta.strip():
-                    agent.receive_lead_response(lead_id, resposta.strip())
-                    st.success("Resposta registrada.")
+        if remoto:
+            st.info("No modo nuvem, alterações de status e simulações rodam via `py run_dev.py` local.")
+        else:
+            with st.container(border=True):
+                st.markdown("**Gerenciar estágio no funil**")
+                indice = STATUS_ORDER.index(lead["status_funil"]) if lead["status_funil"] in STATUS_ORDER else 0
+                novo_status = st.selectbox("Status", STATUS_ORDER, index=indice, key=f"status_{lead_id}")
+                if st.button("Atualizar status", key=f"upd_{lead_id}", width="stretch"):
+                    agent.update_lead_status(lead_id, novo_status)
+                    st.success(f"Status atualizado para '{novo_status}'.")
                     st.rerun()
-                else:
-                    st.error("Digite uma resposta.")
+
+            with st.container(border=True):
+                st.markdown("**Simular resposta do lead (WhatsApp)**")
+                st.caption(f"Dica: a frase de compromisso é \"{agent.CONFIRMATION_PHRASE}\".")
+                resposta = st.text_input("Resposta recebida", key=f"resp_{lead_id}")
+                if st.button("Registrar resposta", key=f"send_{lead_id}", width="stretch"):
+                    if resposta.strip():
+                        agent.receive_lead_response(lead_id, resposta.strip())
+                        st.success("Resposta registrada.")
+                        st.rerun()
+                    else:
+                        st.error("Digite uma resposta.")
 
     st.markdown("**🧾 Histórico de interações**")
     logs_lead = load_logs_df(lead_id)
@@ -555,6 +598,9 @@ if not check_password():
 
 st.title("🛡️ Vigil Summit · Painel do Agente Autônomo")
 st.caption("Funil de ponta a ponta: Captação → Enriquecimento → Engajamento → Follow-up")
+
+if api_client.modo_remoto():
+    st.caption(f"☁️ Modo nuvem · API: `{api_client.base_url()}`")
 
 render_sidebar()
 leads_df = load_leads_df()

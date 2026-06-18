@@ -437,14 +437,17 @@
   <script>
     // URL da API. Se a LP for aberta como arquivo local, aponta para localhost:8080.
     // Em produção com LP em outro domínio: window.VIGIL_API_URL = 'https://sua-api.com';
+    const API_PRODUCAO = 'https://vigil-summit-api.onrender.com';
+
     function detectarApiBase() {
-      if (window.VIGIL_API_URL) return window.VIGIL_API_URL;
-      // LP no GitHub Pages → API no Render (mesmo repositório, blueprint render.yaml).
-      if (location.hostname.endsWith('github.io')) {
-        return 'https://vigil-summit-api.onrender.com';
+      if (window.VIGIL_API_URL) return String(window.VIGIL_API_URL).replace(/\/$/, '');
+      const host = location.hostname;
+      // Desenvolvimento local via api.py (run_dev.py ou uvicorn).
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return `${location.protocol}//${host}:8080`;
       }
-      if (location.protocol === 'http:' || location.protocol === 'https:') return '';
-      return 'http://localhost:8080';
+      // Qualquer host publico (GitHub Pages, Streamlit, etc.) → API no Render.
+      return API_PRODUCAO;
     }
     const API_BASE = detectarApiBase();
 
@@ -460,9 +463,17 @@
 
     function mensagemDeErro(erro, dados) {
       if (erro && (erro.message === 'Failed to fetch' || erro.name === 'TypeError')) {
+        if (API_BASE.includes('onrender.com')) {
+          return (
+            'API de captação indisponível no momento. O servidor Render (free tier) pode ' +
+            'estar iniciando — aguarde cerca de 1 minuto e tente novamente. ' +
+            'Se o erro persistir, confirme o deploy da API em dashboard.render.com.'
+          );
+        }
         return (
-          'Servidor de captação offline. No terminal, rode: py -m uvicorn api:app --port 8080 ' +
-          'e abra a LP em http://localhost:8080 (não abra o arquivo HTML direto).'
+          'Servidor de captação offline. No terminal, rode: py run_dev.py ' +
+          'ou py -m uvicorn api:app --port 8080 e abra http://localhost:8080 ' +
+          '(não abra o arquivo HTML direto).'
         );
       }
       if (typeof dados?.detail === 'string') return dados.detail;
@@ -493,11 +504,15 @@
 
       let dados = {};
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 90000);
         const resposta = await fetch(`${API_BASE}/api/inscricao`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
 
         dados = await resposta.json().catch(() => ({}));
 

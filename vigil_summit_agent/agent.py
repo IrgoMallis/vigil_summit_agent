@@ -535,6 +535,18 @@ def _instrucao_de_compromisso(step: dict) -> str:
     )
 
 
+def _instrucao_se_nao_confirmou(lead: sqlite3.Row, step: dict) -> str:
+    """Tom mais assertivo para quem ainda está 'Inscrito' (não confirmou)."""
+    if lead["status_funil"] != STATUS_INSCRITO:
+        return ""
+    if step.get("tipo_mensagem") not in ("Pedido_Confirmacao", "Gatilho_Escassez"):
+        return ""
+    return (
+        "\n\nATENÇÃO: este lead AINDA NÃO confirmou presença. "
+        "Use tom mais assertivo e urgente, reforçando que precisa garantir a vaga agora."
+    )
+
+
 def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
     """
     Gera uma mensagem personalizada via LLM para uma etapa da régua.
@@ -567,7 +579,8 @@ def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
     user_prompt = (
         f"PERFIL DO LEAD:\n{_perfil_do_lead(lead)}\n\n"
         f"{_instrucao_de_segmento(_segmento_do_lead(lead))}\n\n"
-        f"OBJETIVO DESTA MENSAGEM:\n{step['objetivo']}{_instrucao_de_compromisso(step)}\n\n"
+        f"OBJETIVO DESTA MENSAGEM:\n{step['objetivo']}{_instrucao_de_compromisso(step)}"
+        f"{_instrucao_se_nao_confirmou(lead, step)}\n\n"
         "Gere a mensagem agora."
     )
 

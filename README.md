@@ -56,7 +56,7 @@ flowchart TD
     end
 
     subgraph Dados["Camada de dados (memória)"]
-        DB[("SQLite · vigil_summit.db<br/>leads + interaction_logs")]
+        DB[("SQLite · vigil_summit.db<br/>leads + interaction_logs + users")]
     end
 
     subgraph Cerebro["Processamento (Agente)"]
@@ -112,7 +112,7 @@ flowchart TD
 | **Orquestração do agente** | **SDK nativo (Anthropic / OpenAI-compat)** | Para um funil determinístico (etapas e gatilhos bem definidos), o SDK nativo dá **controle total e transparência** sobre cada prompt/resposta, sem a camada de abstração de um framework. `agno` está listado no `requirements` como caminho de evolução (tool-use/orquestração multiagente) quando a complexidade justificar. |
 | **Banco de dados** | **SQLite** | Relacional, zero-config, arquivo único — ideal para um protótipo **demonstrável e inspecionável** pela banca. O modelo de dados é portável para Postgres sem reescrever a lógica. |
 | **Captação (LP)** | **HTML/CSS/JS estático** | Hospedagem gratuita (GitHub Pages/Vercel/Netlify), carregamento rápido e **SEO para IA** via JSON-LD — relevante para indexação em buscas generativas (Perplexity, SearchGPT, Gemini). |
-| **Interface/Operação** | **Streamlit** | Painel funcional em Python puro, sem front-end dedicado. Cobre o opcional "painel de monitoramento" e "interface protegida por senha". |
+| **Interface/Operação** | **Streamlit** | Painel funcional em Python puro, sem front-end dedicado. Cobre o opcional "painel de monitoramento" e "interface protegida por senha" (login **multiusuário** com senhas em hash). |
 | **Config/Segredos** | **python-dotenv** | Carrega `ANTHROPIC_API_KEY` e parâmetros (`VIGIL_EVENT_DATE`, `APP_PASSWORD`) do `.env`, mantido fora do versionamento. |
 | **Dados/Tabelas** | **pandas** | Leitura e exibição tabular no painel. |
 
@@ -244,12 +244,12 @@ A arquitetura já aponta para isso. As mudanças necessárias:
 cd vigil_summit_agent
 py -m pip install -r requirements.txt
 
-# 2. Configurar o provedor de LLM e a chave no .env
-#    LLM_PROVIDER=anthropic   (padrao)  ou  groq  (gratuito p/ testes)
-#    ANTHROPIC_API_KEY=...    (se LLM_PROVIDER=anthropic)
-#    GROQ_API_KEY=...         (se LLM_PROVIDER=groq)
+# 2. Configurar o ambiente: copie o .env.example para .env
+#    copy .env.example .env   (Windows)   |   cp .env.example .env (Linux/Mac)
+#    Ja vem pronto com LLM_PROVIDER=groq e uma chave Groq de teste (free tier).
+#    Para usar o Claude: LLM_PROVIDER=anthropic + ANTHROPIC_API_KEY=...
 #    (opcional) VIGIL_EVENT_DATE=2026-06-30
-#    (opcional) APP_PASSWORD=uma_senha   -> protege o painel
+#    (opcional) APP_PASSWORD=uma_senha   -> protege o painel (padrao: vigil2026)
 
 # 3. Criar e popular o banco
 py -X utf8 database.py
@@ -271,14 +271,22 @@ A **landing page** (`index.html`) abre direto no navegador ou pode ser publicada
 
 ## 10. Como testar (acesso para a Pareto)
 
+> **Adendo sobre o LLM usado nos testes.** Todo o projeto foi desenvolvido e testado usando o **Groq** (`llama-3.3-70b-versatile`) como provedor de LLM, aproveitando o **free tier** para validar o funil ponta a ponta sem custo. Para que a avaliação rode de imediato, **já deixei uma chave Groq de teste** no `.env.example` (`LLM_PROVIDER=groq`) — basta copiá-lo para `.env` e tudo funciona.
+>
+> Fiquem à vontade para integrar a **Anthropic (Claude 3.5 Sonnet)**, que considero a **melhor opção** para a qualidade do copy e do enriquecimento — a camada de LLM é abstraída (`_chat`), então é só trocar `LLM_PROVIDER=anthropic` e informar a `ANTHROPIC_API_KEY`. Optei pelo Groq na fase de desenvolvimento por uma questão de custo durante os testes. 😄
+
+- **Acesso ao painel (login):** o painel é protegido por **login de usuário + senha**. Na primeira execução, um usuário inicial é criado automaticamente:
+  - **Usuário:** `admin` · **Senha:** `vigil2026` (ou o valor de `APP_PASSWORD`, se definido).
+  - Na aba **"👤 Usuários"** é possível **criar e remover** outros usuários da equipe. As senhas são guardadas apenas como **hash PBKDF2-HMAC-SHA256 com salt** (nunca em texto puro). Há travas de segurança: não é possível remover o próprio usuário conectado nem deixar o painel sem nenhum acesso.
 - O banco já vem com **3 leads sintéticos** (seed), incluindo **`ramon@pareto.io`** com status `Inscrito`, conforme solicitado no case.
 - **Fluxo recomendado de teste:**
   1. `py -X utf8 database.py` (cria o banco).
-  2. `py -m streamlit run app.py` e abra o painel.
-  3. Clique em **"Fase 2 · Enriquecer"** → veja os perfis preenchidos.
+  2. `py -m streamlit run app.py`, faça login (`admin` / `vigil2026`) e explore as abas.
+  3. Em **"🤖 Operar o agente"**, clique em **"Fase 2 · Enriquecer"** → veja os perfis preenchidos.
   4. Clique em **"Fase 3 · Engajar + respostas"** → veja as mensagens geradas e leads virando `Confirmado`.
   5. Use **"🎬 Demo ponta a ponta"** para rodar todo o funil de uma vez.
-  6. Em **Detalhe do lead**, inspecione o histórico de interações e simule respostas.
+  6. Na aba **"👥 Leads" → Detalhe do lead**, inspecione o histórico de interações e simule respostas.
+- O painel é organizado em abas: **Visão geral** (KPIs e funil de conversão), **Leads** (tabela e detalhe), **Operar o agente** (Fases 2–4), **Interações** (log completo) e **Usuários** (controle de acesso).
 - As ações de IA exigem a chave do provedor ativo no `.env` (`ANTHROPIC_API_KEY` ou `GROQ_API_KEY`, conforme `LLM_PROVIDER`). Sem ela, o painel exibe o funil normalmente, mas as ações de geração ficam desabilitadas.
 
 ---
@@ -312,9 +320,18 @@ A **landing page** (`index.html`) abre direto no navegador ou pode ser publicada
 | `fase_funil` | TEXT | ex.: `Pre-Evento`, `Pos-Evento` |
 | `canal` | TEXT | `WhatsApp`, `E-mail` |
 | `tipo_mensagem` | TEXT | ex.: `Confirmacao_Neurociencia`, `Convite_Reuniao` |
-| `conteudo_enviado` | TEXT | mensagem gerada pelo Claude |
+| `conteudo_enviado` | TEXT | mensagem gerada pelo LLM |
 | `resposta_lead` | TEXT | resposta simulada do lead |
 | `data_envio` | DATETIME | default `CURRENT_TIMESTAMP` |
+
+### Tabela `users`
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `id` | INTEGER PK | autoincremento |
+| `username` | TEXT UNIQUE NOT NULL | usuário de acesso ao painel |
+| `password_salt` | TEXT NOT NULL | salt aleatório por usuário |
+| `password_hash` | TEXT NOT NULL | hash PBKDF2-HMAC-SHA256 (200k iterações) |
+| `created_at` | DATETIME | default `CURRENT_TIMESTAMP` |
 
 ---
 

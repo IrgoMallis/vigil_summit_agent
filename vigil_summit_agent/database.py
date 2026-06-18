@@ -5,19 +5,24 @@ Inicialização e população do banco de dados SQLite do projeto
 "Case AI Engineer - Vigil Summit" (Pareto).
 
 Banco: vigil_summit.db
-Tabelas: leads, interaction_logs
+Tabelas: leads, interaction_logs, users
 
 Execute diretamente para criar o banco e popular leads de teste:
     python database.py
 """
 
 import os
+import hashlib
+import secrets
 import sqlite3
-from typing import Optional
 
 # Caminho do banco sempre relativo a este arquivo (evita problemas de cwd).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "vigil_summit.db")
+
+# Hash de senha: PBKDF2-HMAC-SHA256 com salt por usuário (apenas stdlib).
+PBKDF2_ITERATIONS = 200_000
+MIN_PASSWORD_LENGTH = 6
 
 
 def get_connection() -> sqlite3.Connection:
@@ -94,6 +99,19 @@ def init_db() -> None:
             """
         )
 
+        # Usuários do painel (login por usuário/senha). Guarda apenas o hash.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                username        TEXT    UNIQUE NOT NULL,
+                password_salt   TEXT    NOT NULL,
+                password_hash   TEXT    NOT NULL,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+
         conn.commit()
     finally:
         conn.close()
@@ -102,17 +120,17 @@ def init_db() -> None:
 def insert_lead(
     nome: str,
     email: str,
-    telefone: Optional[str] = None,
-    cargo_declarado: Optional[str] = None,
-    empresa: Optional[str] = None,
-    cargo_real: Optional[str] = None,
-    setor: Optional[str] = None,
-    tamanho_empresa: Optional[str] = None,
-    linkedin_perfil: Optional[str] = None,
-    sinais_interesse: Optional[str] = None,
+    telefone: str | None = None,
+    cargo_declarado: str | None = None,
+    empresa: str | None = None,
+    cargo_real: str | None = None,
+    setor: str | None = None,
+    tamanho_empresa: str | None = None,
+    linkedin_perfil: str | None = None,
+    sinais_interesse: str | None = None,
     origem: str = "LP_Organico",
     status_funil: str = "Inscrito",
-) -> Optional[int]:
+) -> int | None:
     """Insere um lead. Retorna o id criado ou None se o e-mail já existir.
 
     `origem` define o segmento de comunicação ('LP_Organico' para leads novos
@@ -206,6 +224,91 @@ def seed_test_leads() -> None:
             inserted += 1
 
     print(f"[seed] Leads de teste inseridos: {inserted}/{len(test_leads)}")
+
+
+# ----------------------------------------------------------------------
+# Usuários do painel (autenticação)
+# ----------------------------------------------------------------------
+def _hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """Deriva (salt, hash) de uma senha. Gera um salt novo se não for fornecido."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    derived = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), bytes.fromhex(salt), PBKDF2_ITERATIONS
+    )
+    return salt, derived.hex()
+
+
+def create_user(username: str, password: str) -> int | None:
+    """Cria um usuário. Retorna o id ou None se o nome de usuário já existir."""
+    salt, password_hash = _hash_password(password)
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users (username, password_salt, password_hash)
+            VALUES (?, ?, ?);
+            """,
+            (username, salt, password_hash),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+
+def verify_user(username: str, password: str) -> bool:
+    """Confere as credenciais contra o hash armazenado (comparação constante)."""
+    conn = get_connection()
+    try:
+        usuario = conn.execute(
+            "SELECT password_salt, password_hash FROM users WHERE username = ?;",
+            (username,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if usuario is None:
+        return False
+    _, esperado = _hash_password(password, usuario["password_salt"])
+    return secrets.compare_digest(esperado, usuario["password_hash"])
+
+
+def list_users() -> list[sqlite3.Row]:
+    """Retorna todos os usuários (sem dados sensíveis de senha)."""
+    conn = get_connection()
+    try:
+        return conn.execute(
+            "SELECT id, username, created_at FROM users ORDER BY username;"
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def count_users() -> int:
+    conn = get_connection()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM users;").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def delete_user(username: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM users WHERE username = ?;", (username,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ensure_default_user(username: str, password: str) -> None:
+    """Garante um usuário inicial quando ainda não há nenhum cadastrado."""
+    if count_users() == 0:
+        create_user(username, password)
 
 
 if __name__ == "__main__":

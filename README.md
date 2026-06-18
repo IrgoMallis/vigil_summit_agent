@@ -277,13 +277,13 @@ A **landing page** (`index.html`) é servida pelo **`api.py`** (FastAPI) em `htt
 
 | Componente | Onde | URL |
 |------------|------|-----|
-| **Landing Page** | GitHub Pages | `https://irgomallis.github.io/vigil_summit_agent/` |
-| **API de captação** | Render (blueprint `render.yaml`) | `https://vigil-summit-api.onrender.com` |
-| **Painel Streamlit** | Streamlit Community Cloud | ver seção abaixo |
+| **Landing Page** | GitHub Pages | https://irgomallis.github.io/vigil_summit_agent/ |
+| **API de captação** | Render (blueprint `render.yaml`) | https://vigil-summit-api.onrender.com |
+| **Painel Streamlit** | Streamlit Community Cloud | https://share.streamlit.io → ver passo 3 abaixo |
 
 1. **GitHub Pages** — ativado via GitHub Actions (workflow `.github/workflows/pages.yml`). A LP envia inscrições para a API no Render.
-2. **Render** — em [dashboard.render.com](https://dashboard.render.com), conecte o repo e aplique o blueprint `render.yaml`. Configure `GROQ_API_KEY` nos Environment Variables.
-3. **Streamlit Cloud** — acesse [share.streamlit.io](https://share.streamlit.io), **New app**, repo `IrgoMallis/vigil_summit_agent`, branch `main`, **Main file path:** `vigil_summit_agent/app.py`. Em **Secrets**, cole o conteúdo do `.env.example` (com chaves reais).
+2. **Render** — clique em [Deploy to Render](https://render.com/deploy?repo=https://github.com/IrgoMallis/vigil_summit_agent) ou conecte o repo em [dashboard.render.com](https://dashboard.render.com). Configure `GROQ_API_KEY` nos Environment Variables. Sem a API no ar, o formulário da LP online não grava leads.
+3. **Streamlit Cloud** — acesse [share.streamlit.io](https://share.streamlit.io) → **Create app** → repo `IrgoMallis/vigil_summit_agent`, branch `main`, **Main file path:** `vigil_summit_agent/app.py`. Em **Advanced settings**, working directory: `vigil_summit_agent`. Em **Secrets**, cole as variáveis do `.env.example` (com chaves reais).
 
 > **Nota:** localmente LP + painel compartilham o mesmo SQLite. Na nuvem, a API (Render) e o painel (Streamlit Cloud) usam instâncias separadas — inscrições pela LP ficam na API até integrar um banco compartilhado (Postgres), previsto no plano de escala do README.
 

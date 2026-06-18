@@ -43,6 +43,10 @@ STATUS_EMOJI = {
     agent.STATUS_REUNIAO_AGENDADA: "🤝",
 }
 ORIGEM_OPCOES = [agent.ORIGEM_ORGANICA, agent.SEGMENTO_REMARKETING]
+SETOR_OPCOES = [
+    "Tecnologia", "Financeiro", "Varejo", "Saúde", "Indústria",
+    "Educação", "Energia", "Telecomunicações", "Outro",
+]
 
 # Meta de comparecimento definida no case (usada como referência nos KPIs).
 META_COMPARECIMENTO = 70
@@ -190,6 +194,7 @@ def render_sidebar() -> None:
             nome = st.text_input("Nome*")
             email = st.text_input("E-mail corporativo*")
             cargo = st.text_input("Cargo declarado")
+            setor = st.selectbox("Setor", [""] + SETOR_OPCOES, format_func=lambda s: "Selecione..." if s == "" else s)
             empresa = st.text_input("Empresa")
             telefone = st.text_input("Telefone / WhatsApp")
             origem = st.selectbox("Origem", ORIGEM_OPCOES)
@@ -205,6 +210,7 @@ def render_sidebar() -> None:
             email=email,
             telefone=telefone or None,
             cargo_declarado=cargo or None,
+            setor=setor or None,
             empresa=empresa or None,
             origem=origem,
         )
@@ -322,6 +328,14 @@ def render_operacao(leads_df: pd.DataFrame) -> None:
 def _leads_para_exibicao(df: pd.DataFrame) -> pd.DataFrame:
     """Prepara o DataFrame de leads para exibição (status com ícone, data tipada)."""
     view = df.copy()
+    if "cargo_real" in view.columns or "cargo_declarado" in view.columns:
+        def _cargo_exibido(row: pd.Series) -> str:
+            for coluna in ("cargo_real", "cargo_declarado"):
+                if coluna in row.index and pd.notna(row[coluna]) and str(row[coluna]).strip():
+                    return str(row[coluna]).strip()
+            return "—"
+
+        view["cargo"] = view.apply(_cargo_exibido, axis=1)
     if "status_funil" in view.columns:
         view["status_funil"] = view["status_funil"].map(
             lambda s: f"{STATUS_EMOJI.get(s, '')} {s}".strip()
@@ -336,7 +350,7 @@ LEADS_COLUMN_CONFIG = {
     "nome": st.column_config.TextColumn("Nome"),
     "email": st.column_config.TextColumn("E-mail"),
     "empresa": st.column_config.TextColumn("Empresa"),
-    "cargo_real": st.column_config.TextColumn("Cargo (real)"),
+    "cargo": st.column_config.TextColumn("Cargo"),
     "setor": st.column_config.TextColumn("Setor"),
     "tamanho_empresa": st.column_config.TextColumn("Porte"),
     "origem": st.column_config.TextColumn("Origem"),
@@ -344,7 +358,7 @@ LEADS_COLUMN_CONFIG = {
     "data_inscricao": st.column_config.DatetimeColumn("Inscrição", format="DD/MM/YYYY"),
 }
 LEADS_VISIBLE_COLUMNS = [
-    "id", "nome", "email", "empresa", "cargo_real",
+    "id", "nome", "email", "empresa", "cargo",
     "setor", "tamanho_empresa", "origem", "status_funil", "data_inscricao",
 ]
 
@@ -390,7 +404,8 @@ def render_detalhe_do_lead(leads_df: pd.DataFrame) -> None:
             st.markdown(f"**{STATUS_EMOJI.get(lead['status_funil'], '')} {lead['nome']}**")
             st.markdown(f"**E-mail:** {lead['email']}")
             st.markdown(f"**Empresa:** {lead['empresa'] or '—'}")
-            st.markdown(f"**Cargo real:** {lead['cargo_real'] or '— (não enriquecido)'}")
+            st.markdown(f"**Cargo declarado:** {lead['cargo_declarado'] or '—'}")
+            st.markdown(f"**Cargo (enriquecido):** {lead['cargo_real'] or '— (pendente Fase 2)'}")
             st.markdown(f"**Setor:** {lead['setor'] or '—'}")
             st.markdown(f"**Porte:** {lead['tamanho_empresa'] or '—'}")
             st.markdown(

@@ -196,7 +196,12 @@
       color: var(--texto); padding: 13px 14px; border-radius: 10px; font-size: 0.98rem;
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
-    input:focus { outline: none; border-color: var(--neon); box-shadow: 0 0 0 3px var(--neon-suave); }
+    select {
+      width: 100%; background: var(--preto); border: 1px solid var(--cinza-borda);
+      color: var(--texto); padding: 13px 14px; border-radius: 10px; font-size: 0.98rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--neon); box-shadow: 0 0 0 3px var(--neon-suave); }
     .form-card button {
       width: 100%; margin-top: 8px; cursor: pointer; border: none;
       background: var(--neon); color: var(--preto); font-weight: 700;
@@ -210,6 +215,12 @@
       color: var(--neon); padding: 14px; border-radius: 10px; font-weight: 600;
       margin-bottom: 18px; text-align: center;
     }
+    .error-msg {
+      display: none; background: rgba(255, 80, 80, 0.12); border: 1px solid #ff5050;
+      color: #ff8080; padding: 14px; border-radius: 10px; font-weight: 600;
+      margin-bottom: 18px; text-align: center;
+    }
+    .form-card button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
     .form-aside h2 { font-size: 1.8rem; line-height: 1.2; margin-bottom: 16px; }
     .form-aside ul { list-style: none; }
     .form-aside li { display: flex; gap: 10px; margin-bottom: 12px; color: var(--texto-suave); }
@@ -299,6 +310,7 @@
       <div class="form-wrap">
         <div class="form-card">
           <div class="success" id="successMsg">✅ Inscrição recebida! Em breve nosso time confirmará sua vaga por e-mail e WhatsApp.</div>
+          <div class="error-msg" id="errorMsg"></div>
           <h3>Garanta sua vaga</h3>
           <p class="mini">São apenas 120 lugares. Preencha com seus dados corporativos.</p>
           <form id="leadForm" novalidate>
@@ -313,6 +325,21 @@
             <div class="field">
               <label for="cargo">Cargo</label>
               <input type="text" id="cargo" name="cargo" placeholder="Ex.: CISO, Diretor de TI" required />
+            </div>
+            <div class="field">
+              <label for="setor">Setor da empresa</label>
+              <select id="setor" name="setor" required>
+                <option value="" disabled selected>Selecione o setor</option>
+                <option value="Tecnologia">Tecnologia</option>
+                <option value="Financeiro">Financeiro</option>
+                <option value="Varejo">Varejo</option>
+                <option value="Saúde">Saúde</option>
+                <option value="Indústria">Indústria</option>
+                <option value="Educação">Educação</option>
+                <option value="Energia">Energia</option>
+                <option value="Telecomunicações">Telecomunicações</option>
+                <option value="Outro">Outro</option>
+              </select>
             </div>
             <div class="field">
               <label for="empresa">Empresa</label>
@@ -408,30 +435,87 @@
   </footer>
 
   <script>
-    // Captação simulada (LP estática). Em produção, este submit faria um POST
-    // para um endpoint/serverless que insere o lead no banco (tabela `leads`,
-    // status 'Inscrito') e dispara a Fase 2 de enriquecimento.
+    // URL da API. Se a LP for aberta como arquivo local, aponta para localhost:8080.
+    // Em produção com LP em outro domínio: window.VIGIL_API_URL = 'https://sua-api.com';
+    function detectarApiBase() {
+      if (window.VIGIL_API_URL) return window.VIGIL_API_URL;
+      // LP no GitHub Pages → API no Render (mesmo repositório, blueprint render.yaml).
+      if (location.hostname.endsWith('github.io')) {
+        return 'https://vigil-summit-api.onrender.com';
+      }
+      if (location.protocol === 'http:' || location.protocol === 'https:') return '';
+      return 'http://localhost:8080';
+    }
+    const API_BASE = detectarApiBase();
+
     const form = document.getElementById('leadForm');
     const success = document.getElementById('successMsg');
+    const errorMsg = document.getElementById('errorMsg');
+    const submitBtn = form.querySelector('button[type="submit"]');
 
-    form.addEventListener('submit', function (e) {
+    function esconderAlertas() {
+      success.style.display = 'none';
+      errorMsg.style.display = 'none';
+    }
+
+    function mensagemDeErro(erro, dados) {
+      if (erro && (erro.message === 'Failed to fetch' || erro.name === 'TypeError')) {
+        return (
+          'Servidor de captação offline. No terminal, rode: py -m uvicorn api:app --port 8080 ' +
+          'e abra a LP em http://localhost:8080 (não abra o arquivo HTML direto).'
+        );
+      }
+      if (typeof dados?.detail === 'string') return dados.detail;
+      if (Array.isArray(dados?.detail)) return dados.detail.map((item) => item.msg).join(' ');
+      return erro?.message || 'Não foi possível concluir a inscrição. Tente novamente.';
+    }
+
+    form.addEventListener('submit', async function (e) {
       e.preventDefault();
+      esconderAlertas();
+
       if (!form.checkValidity()) {
         form.reportValidity();
         return;
       }
-      const lead = {
+
+      const payload = {
         nome: form.nome.value.trim(),
         email: form.email.value.trim(),
         cargo: form.cargo.value.trim(),
+        setor: form.setor.value.trim(),
         empresa: form.empresa.value.trim(),
         telefone: form.telefone.value.trim(),
-        status_funil: 'Inscrito'
       };
-      console.log('Lead captado (pronto para enviar ao backend):', lead);
-      success.style.display = 'block';
-      form.reset();
-      success.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Enviando...';
+
+      let dados = {};
+      try {
+        const resposta = await fetch(`${API_BASE}/api/inscricao`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        dados = await resposta.json().catch(() => ({}));
+
+        if (!resposta.ok) {
+          throw new Error(mensagemDeErro(null, dados));
+        }
+
+        success.style.display = 'block';
+        form.reset();
+        success.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (erro) {
+        errorMsg.textContent = mensagemDeErro(erro, dados);
+        errorMsg.style.display = 'block';
+        errorMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Garantir minha vaga exclusiva';
+      }
     });
   </script>
 </body>

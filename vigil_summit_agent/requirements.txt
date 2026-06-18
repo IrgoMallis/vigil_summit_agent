@@ -4,3 +4,5 @@ openai
 agno
 python-dotenv
 pandas
+fastapi
+uvicorn[standard]

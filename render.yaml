@@ -1,0 +1,18 @@
+# Deploy da API de captação (LP + POST /api/inscricao) no Render.
+# Conecte o repositório em https://dashboard.render.com e aplique este blueprint.
+services:
+  - type: web
+    name: vigil-summit-api
+    runtime: python
+    rootDir: vigil_summit_agent
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: groq

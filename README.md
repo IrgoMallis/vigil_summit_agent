@@ -261,11 +261,31 @@ py -X utf8 agent.py pre      # Fase 3 - régua pré-evento completa (4 toques)
 py -X utf8 agent.py post     # Fase 4 - régua pós-evento
 py -X utf8 agent.py demo     # funil completo de ponta a ponta
 
-# 4b. Rodar o painel
-py -m streamlit run app.py
+# 4b. Rodar LP + API + painel com um comando (recomendado)
+py run_dev.py
+#    LP  → http://localhost:8080
+#    App → http://localhost:8501
+
+# Ou, em dois terminais separados:
+# py -m uvicorn api:app --reload --port 8080   → http://localhost:8080
+# py -m streamlit run app.py                   → http://localhost:8501
 ```
 
-A **landing page** (`index.html`) abre direto no navegador ou pode ser publicada em GitHub Pages/Vercel/Netlify.
+A **landing page** (`index.html`) é servida pelo **`api.py`** (FastAPI) em `http://localhost:8080`. O formulário grava leads reais no SQLite; o painel Streamlit lê o mesmo banco.
+
+**Deploy simples (produção):**
+
+| Componente | Onde | URL |
+|------------|------|-----|
+| **Landing Page** | GitHub Pages | `https://irgomallis.github.io/vigil_summit_agent/` |
+| **API de captação** | Render (blueprint `render.yaml`) | `https://vigil-summit-api.onrender.com` |
+| **Painel Streamlit** | Streamlit Community Cloud | ver seção abaixo |
+
+1. **GitHub Pages** — ativado via GitHub Actions (workflow `.github/workflows/pages.yml`). A LP envia inscrições para a API no Render.
+2. **Render** — em [dashboard.render.com](https://dashboard.render.com), conecte o repo e aplique o blueprint `render.yaml`. Configure `GROQ_API_KEY` nos Environment Variables.
+3. **Streamlit Cloud** — acesse [share.streamlit.io](https://share.streamlit.io), **New app**, repo `IrgoMallis/vigil_summit_agent`, branch `main`, **Main file path:** `vigil_summit_agent/app.py`. Em **Secrets**, cole o conteúdo do `.env.example` (com chaves reais).
+
+> **Nota:** localmente LP + painel compartilham o mesmo SQLite. Na nuvem, a API (Render) e o painel (Streamlit Cloud) usam instâncias separadas — inscrições pela LP ficam na API até integrar um banco compartilhado (Postgres), previsto no plano de escala do README.
 
 ---
 
@@ -337,7 +357,7 @@ A **landing page** (`index.html`) abre direto no navegador ou pode ser publicada
 
 ## 12. Limitações e decisões conscientes
 
-- **Captação da LP é simulada.** O formulário estático valida e exibe sucesso, mas **não grava no banco** (página estática não tem backend). A captação **real** acontece pelo formulário do painel Streamlit (que grava de fato) e, em produção, via endpoint serverless documentado no plano de 5 dias. **Decisão consciente** para priorizar o que pontua na avaliação.
+- **Captação da LP é real** via `POST /api/inscricao` (`api.py` → `insert_lead`, origem `LP_Organico`). LP e painel compartilham o mesmo SQLite localmente.
 - **Envio de mensagens é simulado** (persistido em `interaction_logs`), com canais desacoplados para integração futura.
 - **Enriquecimento é dedução do LLM**, não consulta a fontes externas (substituível sem mudar a interface).
 - **Confirmação por frase exata** ("Eu irei ao evento") é adequada ao protótipo; em produção, dá lugar a classificação de intenção via Claude.
@@ -357,6 +377,7 @@ Case - AI Engineer (2026)/
     ├── .env.example
     ├── database.py            # schema, seed e acesso ao SQLite
     ├── agent.py               # cérebro do agente (Fases 2, 3 e 4)
+    ├── api.py                 # LP + API de captação (FastAPI)
     ├── app.py                 # painel Streamlit (operação e monitoramento)
     ├── requirements.txt
     └── vigil_summit.db        # banco (gerado ao rodar database.py)

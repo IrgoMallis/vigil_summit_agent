@@ -12,9 +12,5 @@ services:
     envVars:
       - key: CORS_ORIGINS
         value: "*"
-      - key: GROQ_API_KEY
-        sync: false
-      - key: LLM_PROVIDER
-        value: groq
       - key: VIGIL_API_KEY
         sync: false

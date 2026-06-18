@@ -53,8 +53,8 @@ CLAUDE_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-# Placeholder do .env de exemplo; tratado como "sem chave".
-PLACEHOLDER_TOKEN = "seu_token_aqui"
+# Valores placeholder do .env.example — tratados como "sem chave configurada".
+PLACEHOLDER_TOKENS = frozenset({"seu_token_aqui", "sua_chave_groq_aqui"})
 
 # Parâmetros de geração por tarefa (temperatura menor = mais determinístico).
 ENRICHMENT_MAX_TOKENS = 1024
@@ -154,7 +154,7 @@ def _api_key_do_provedor() -> str:
 def llm_configurado() -> bool:
     """True se a API key do provedor ativo estiver configurada no .env."""
     chave = _api_key_do_provedor()
-    return bool(chave) and chave != PLACEHOLDER_TOKEN
+    return bool(chave) and chave not in PLACEHOLDER_TOKENS
 
 
 def _gerar_via_groq(system_prompt: str, user_prompt: str,
@@ -201,7 +201,7 @@ def _chat(
     LLM_PROVIDER no .env, sem tocar na lógica do agente.
     """
     chave = _api_key_do_provedor()
-    if not chave or chave == PLACEHOLDER_TOKEN:
+    if not chave or chave in PLACEHOLDER_TOKENS:
         raise RuntimeError(
             f"{_nome_da_variavel_de_chave()} ausente ou não configurada no .env "
             f"(provedor ativo: '{LLM_PROVIDER}'). Insira um token válido."

@@ -18,7 +18,7 @@ A solução usa **Claude 3.5 Sonnet** para enriquecer perfis e gerar comunicaç�
 6. [Decisões estratégicas e racional](#6-decisões-estratégicas-e-racional)
 7. [Plano de execução (primeiros 5 dias)](#7-plano-de-execução-primeiros-5-dias)
 8. [Cenário de escala (pergunta bônus)](#8-cenário-de-escala-pergunta-bônus)
-9. [Como instalar e rodar](#9-como-instalar-e-rodar)
+9. [Como instalar e rodar](#9-como-instalar-e-rodar) · [Integração LLM](#integração-com-llm-anthropic-ou-groq)
 10. [Como testar (acesso para a Pareto)](#10-como-testar-acesso-para-a-pareto)
 11. [Modelo de dados](#11-modelo-de-dados)
 12. [Limitações e decisões conscientes](#12-limitações-e-decisões-conscientes)
@@ -246,8 +246,7 @@ py -m pip install -r requirements.txt
 
 # 2. Configurar o ambiente: copie o .env.example para .env
 #    copy .env.example .env   (Windows)   |   cp .env.example .env (Linux/Mac)
-#    Ja vem pronto com LLM_PROVIDER=groq e uma chave Groq de teste (free tier).
-#    Para usar o Claude: LLM_PROVIDER=anthropic + ANTHROPIC_API_KEY=...
+#    Escolha Anthropic ou Groq — veja a seção "Integração com LLM" abaixo.
 #    (opcional) VIGIL_EVENT_DATE=2026-06-30
 #    (opcional) APP_PASSWORD=uma_senha   -> protege o painel (padrao: vigil2026)
 
@@ -273,6 +272,69 @@ py run_dev.py
 
 A **landing page** (`index.html`) é servida pelo **`api.py`** (FastAPI) em `http://localhost:8080`. O formulário grava leads reais no SQLite; o painel Streamlit lê o mesmo banco.
 
+### Integração com LLM (Anthropic ou Groq)
+
+O agente usa uma camada multi-provedor (`agent._chat`). Basta configurar **`LLM_PROVIDER`** e a chave correspondente — **não é necessário alterar código**.
+
+> **Segurança:** chaves de API **nunca** devem ir para o GitHub. O `.env` está no `.gitignore`. O `.env.example` traz apenas placeholders; quem for testar precisa criar a própria chave no console do provedor.
+
+#### Opção A — Anthropic (Claude 3.5 Sonnet) · recomendado pelo case
+
+1. Crie uma conta em [console.anthropic.com](https://console.anthropic.com/).
+2. Gere uma API key em **Settings → API Keys**.
+3. No `.env` (local) ou **Secrets** (Streamlit Cloud / Render):
+
+```env
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-api03-...sua_chave...
+# opcional: ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+```
+
+#### Opção B — Groq (Llama 3.3 70B) · free tier para testes
+
+1. Crie uma conta em [console.groq.com](https://console.groq.com/).
+2. Gere uma API key em **API Keys**.
+3. No `.env` ou **Secrets**:
+
+```env
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_...sua_chave...
+# opcional: GROQ_MODEL=llama-3.3-70b-versatile
+```
+
+#### Onde configurar em cada ambiente
+
+| Ambiente | Onde colocar as variáveis |
+|----------|---------------------------|
+| **Local** | `vigil_summit_agent/.env` (copie de `.env.example`) |
+| **Streamlit Cloud** | App → **Settings → Secrets** (formato TOML) |
+| **Render (API)** | Service → **Environment** (só necessário se a API rodar pipelines LLM no futuro; hoje a captação não usa LLM) |
+
+**Exemplo de Secrets no Streamlit Cloud (Anthropic):**
+
+```toml
+LLM_PROVIDER = "anthropic"
+ANTHROPIC_API_KEY = "sk-ant-api03-..."
+APP_PASSWORD = "vigil2026"
+VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
+VIGIL_API_KEY = "mesma_chave_definida_no_Render"
+```
+
+**Exemplo de Secrets no Streamlit Cloud (Groq):**
+
+```toml
+LLM_PROVIDER = "groq"
+GROQ_API_KEY = "gsk_..."
+APP_PASSWORD = "vigil2026"
+VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
+VIGIL_API_KEY = "mesma_chave_definida_no_Render"
+```
+
+#### Como validar se a chave está ativa
+
+- No painel Streamlit, a barra lateral mostra `LLM: anthropic · claude-3-5-sonnet-... · ✅ configurado` (ou `⚠️ sem chave` se faltar/placeholder).
+- Via CLI: `py -X utf8 agent.py enrich` — se a chave estiver ausente, o script informa qual variável preencher.
+
 **Deploy simples (produção):**
 
 | Componente | Onde | URL |
@@ -282,16 +344,8 @@ A **landing page** (`index.html`) é servida pelo **`api.py`** (FastAPI) em `htt
 | **Painel Streamlit** | Streamlit Community Cloud | https://vigilsummitagent.streamlit.app/ |
 
 1. **GitHub Pages** — ativado via GitHub Actions (workflow `.github/workflows/pages.yml`). A LP envia inscrições para a API no Render.
-2. **Render (obrigatório para o formulário online)** — clique em [Deploy to Render](https://render.com/deploy?repo=https://github.com/IrgoMallis/vigil_summit_agent) ou conecte o repo em [dashboard.render.com](https://dashboard.render.com). Configure **`GROQ_API_KEY`** e, opcionalmente, **`VIGIL_API_KEY`** (mesma chave usada no Streamlit). Sem a API no ar, o formulário da LP retorna erro de conexão. O free tier pode levar ~1 minuto no primeiro acesso (cold start).
-3. **Streamlit Cloud** — app em [vigilsummitagent.streamlit.app](https://vigilsummitagent.streamlit.app/). Em **Secrets**, configure no mínimo:
-
-```toml
-GROQ_API_KEY = "sua_chave"
-LLM_PROVIDER = "groq"
-APP_PASSWORD = "vigil2026"
-VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
-VIGIL_API_KEY = "mesma_chave_definida_no_Render"
-```
+2. **Render (obrigatório para o formulário online)** — clique em [Deploy to Render](https://render.com/deploy?repo=https://github.com/IrgoMallis/vigil_summit_agent) ou conecte o repo em [dashboard.render.com](https://dashboard.render.com). Configure **`VIGIL_API_KEY`** (opcional, para proteger leitura de leads). Sem a API no ar, o formulário da LP retorna erro de conexão. O free tier pode levar ~1 minuto no primeiro acesso (cold start).
+3. **Streamlit Cloud** — app em [vigilsummitagent.streamlit.app](https://vigilsummitagent.streamlit.app/). Em **Secrets**, configure o LLM (Anthropic **ou** Groq — veja seção acima) e, para ver leads da LP:
 
 Com `VIGIL_API_URL`, o painel na nuvem **lê os leads inscritos pela LP** (API Render). Para operar Fases 2–4 com o mesmo banco, use localmente: `py run_dev.py`.
 
@@ -301,7 +355,7 @@ Com `VIGIL_API_URL`, o painel na nuvem **lê os leads inscritos pela LP** (API R
 
 ## 10. Como testar (acesso para a Pareto)
 
-> **Adendo sobre o LLM usado nos testes.** Todo o projeto foi desenvolvido e testado usando o **Groq** (`llama-3.3-70b-versatile`) como provedor de LLM, aproveitando o **free tier** para validar o funil ponta a ponta sem custo. Copie o `.env.example` para `.env` e preencha `GROQ_API_KEY` (ou use `LLM_PROVIDER=anthropic` com `ANTHROPIC_API_KEY` para Claude 3.5 Sonnet).
+> **Provedor de LLM:** fica a critério de quem testa — **Anthropic (Claude)** ou **Groq**. Instruções completas na seção [Integração com LLM](#integração-com-llm-anthropic-ou-groq). Nenhuma chave real é versionada no repositório.
 
 - **Acesso ao painel (login):** o painel é protegido por **login de usuário + senha**. Na primeira execução, um usuário inicial é criado automaticamente:
   - **Usuário:** `admin` · **Senha:** `vigil2026` (ou o valor de `APP_PASSWORD`, se definido).

@@ -22,7 +22,7 @@ Documento de entrega para o time de avaliação da **Pareto** (Vigil.AI).
 |---------|---------|-------|
 | **Painel Streamlit** | `admin` | `vigil2026` |
 
-Lead de teste pré-carregado: **`ramon@pareto.io`** (status `Inscrito`).
+Lead de teste pré-carregado: **`ramon@pareto.io`** (status `Inscrito`) — presente no seed **local** (`database.py`) e opcionalmente na API (`SEED_TEST_LEADS=true`). No Render de produção, `SEED_TEST_LEADS=false` (já no `render.yaml`).
 
 ---
 
@@ -35,11 +35,12 @@ Lead de teste pré-carregado: **`ramon@pareto.io`** (status `Inscrito`).
    - **`VIGIL_API_KEY`** — senha compartilhada com o Streamlit (ex.: `vigil-api-2026`)
    - **`LLM_PROVIDER`** — `anthropic` ou `groq`
    - **`ANTHROPIC_API_KEY`** ou **`GROQ_API_KEY`** — chave do provedor escolhido
-3. Valide: `GET https://vigil-summit-api.onrender.com/health` → `"status": "ok"`.
+   - **`SEED_TEST_LEADS`** — `false` para produção (só leads reais da LP); `true` se quiser `ramon@pareto.io` na API
+3. Valide: `GET https://vigil-summit-api.onrender.com/health` → `"status": "ok"`, `"llm_configurado": true`.
 
 ### 2. Streamlit Cloud
 
-Em **Settings → Secrets**:
+Em **Settings → Secrets** (modelo em [`vigil_summit_agent/.streamlit/secrets.toml.example`](vigil_summit_agent/.streamlit/secrets.toml.example)):
 
 ```toml
 VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
@@ -47,14 +48,16 @@ VIGIL_API_KEY = "mesma_chave_do_Render"
 APP_PASSWORD = "vigil2026"
 ```
 
-> O LLM roda **na API (Render)**. O painel Streamlit chama `/api/agent/*` remotamente.
+Salve → **Reboot app** → após login, confirme no topo: **`☁️ Modo nuvem · API: …`**
+
+> O LLM roda **na API (Render)**. O painel Streamlit chama `/api/agent/*` remotamente. **Não** coloque chaves LLM no Streamlit — só no Render.
 
 ---
 
 ## Roteiro de teste (15 min)
 
 1. **Captação:** inscreva-se pela [LP](https://irgomallis.github.io/vigil_summit_agent/) → confirme sucesso.
-2. **Painel:** login em [Streamlit](https://vigilsummitagent.streamlit.app/) → aba **Leads** → veja o novo lead.
+2. **Painel:** login em [Streamlit](https://vigilsummitagent.streamlit.app/) → confirme **`☁️ Modo nuvem`** no topo → aba **Leads** → veja o novo lead.
 3. **Enriquecimento:** aba **Operar o agente** → **Fase 2 · Enriquecer**.
 4. **Engajamento:** **Fase 3 · Engajar + respostas** → leads viram `Confirmado`.
 5. **Demo completa:** **🎬 Demo ponta a ponta** → funil inteiro em um clique.
@@ -66,6 +69,7 @@ APP_PASSWORD = "vigil2026"
 cd vigil_summit_agent
 copy .env.example .env
 # Preencha ANTHROPIC_API_KEY ou GROQ_API_KEY
+# (opcional) VIGIL_API_URL + VIGIL_API_KEY para ler leads da LP online
 py -X utf8 database.py
 py run_dev.py
 ```
@@ -79,8 +83,8 @@ py run_dev.py
 
 | Provedor | Variáveis | Onde obter chave |
 |----------|-----------|------------------|
-| **Anthropic (recomendado)** | `LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) |
-| **Groq (free tier)** | `LLM_PROVIDER=groq` + `GROQ_API_KEY` | [console.groq.com](https://console.groq.com/) |
+| **Anthropic (recomendado)** | `LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/) — **no Render** |
+| **Groq (free tier)** | `LLM_PROVIDER=groq` + `GROQ_API_KEY` | [console.groq.com](https://console.groq.com/) — **no Render** |
 
 Instruções detalhadas no [README § Integração com LLM](https://github.com/IrgoMallis/vigil_summit_agent#integração-com-llm-anthropic-ou-groq).
 
@@ -94,6 +98,7 @@ Instruções detalhadas no [README § Integração com LLM](https://github.com/I
 - Painel com KPIs, funil, operação do agente e login multiusuário
 - Documentação técnica completa (README — 6 seções + bônus escala)
 - Scheduler automático de réguas na API (`ENABLE_SCHEDULER=true` no Render)
+- Painel Streamlit Cloud exige `VIGIL_API_URL` (modo nuvem); seed configurável via `SEED_TEST_LEADS`
 
 ---
 

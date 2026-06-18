@@ -22,3 +22,5 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: SEED_TEST_LEADS
+        value: "false"

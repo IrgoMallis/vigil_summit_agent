@@ -26,9 +26,18 @@ def _ler_config(nome: str) -> str:
 
         if nome in st.secrets:
             return str(st.secrets[nome]).strip()
+        for secao in ("vigil", "api", "general"):
+            if secao in st.secrets and nome in st.secrets[secao]:
+                return str(st.secrets[secao][nome]).strip()
     except Exception:
         pass
     return ""
+
+
+def em_streamlit_cloud() -> bool:
+    if os.getenv("STREAMLIT_RUNTIME_ENVIRONMENT", "").lower() == "cloud":
+        return True
+    return os.path.isdir("/mount/src")
 
 
 def base_url() -> str | None:

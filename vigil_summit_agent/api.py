@@ -121,10 +121,19 @@ def _iniciar_scheduler() -> None:
     print("[scheduler] Régua automática ativa (09:00 pré · 10:00 pós).")
 
 
+def _seed_habilitado() -> bool:
+    return os.getenv("SEED_TEST_LEADS", "true").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 @app.on_event("startup")
 def startup() -> None:
     database.init_db()
-    database.seed_test_leads()
+    if _seed_habilitado():
+        database.seed_test_leads()
+    else:
+        print("[seed] Leads de teste desativados (SEED_TEST_LEADS=false).")
     _iniciar_scheduler()
 
 

@@ -77,7 +77,7 @@ flowchart TD
         PAINEL["Painel Streamlit (app.py)<br/>KPIs · ações · histórico"]
     end
 
-    LP -->|inscrição| DB
+    LP -->|POST /api/inscricao| DB
     FORM -->|inscrição| DB
     DB <--> AG
     AG -->|enriquecer / gerar copy| CL
@@ -85,7 +85,7 @@ flowchart TD
     AG -->|registra envio| WA
     AG -->|registra envio| EM
     AG -->|grava interação| DB
-    PAINEL <--> DB
+    PAINEL -->|modo nuvem: HTTP| DB
     PAINEL -->|dispara pipelines| AG
 ```
 
@@ -308,33 +308,46 @@ GROQ_API_KEY=gsk_...sua_chave...
 | Ambiente | Onde colocar as variáveis |
 |----------|---------------------------|
 | **Local** | `vigil_summit_agent/.env` (copie de `.env.example`) |
-| **Streamlit Cloud** | App → **Settings → Secrets** (formato TOML) |
-| **Render (API)** | Service → **Environment** (só necessário se a API rodar pipelines LLM no futuro; hoje a captação não usa LLM) |
+| **Streamlit Cloud** | App → **Settings → Secrets** (formato TOML). Modelo em [`.streamlit/secrets.toml.example`](vigil_summit_agent/.streamlit/secrets.toml.example) |
+| **Render (API)** | Service → **Environment** — LLM, scheduler, `VIGIL_API_KEY` e `SEED_TEST_LEADS` |
 
-**Exemplo de Secrets no Streamlit Cloud (Anthropic):**
+> **Importante:** no **Streamlit Cloud**, o LLM **não** roda no painel — fica na **API (Render)**. Os Secrets do Streamlit precisam, no mínimo, de `VIGIL_API_URL`, `VIGIL_API_KEY` e `APP_PASSWORD`. Chaves `ANTHROPIC_*` / `GROQ_*` vão no **Render**, não no Streamlit.
 
-```toml
-LLM_PROVIDER = "anthropic"
-ANTHROPIC_API_KEY = "sk-ant-api03-..."
-APP_PASSWORD = "vigil2026"
-VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
-VIGIL_API_KEY = "mesma_chave_definida_no_Render"
-```
-
-**Exemplo de Secrets no Streamlit Cloud (Groq):**
+**Secrets mínimos no Streamlit Cloud** (copie de [`secrets.toml.example`](vigil_summit_agent/.streamlit/secrets.toml.example)):
 
 ```toml
-LLM_PROVIDER = "groq"
-GROQ_API_KEY = "gsk_..."
-APP_PASSWORD = "vigil2026"
 VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
 VIGIL_API_KEY = "mesma_chave_definida_no_Render"
+APP_PASSWORD = "vigil2026"
 ```
 
-#### Como validar se a chave está ativa
+**Exemplo completo no Render** (Groq — free tier):
 
-- No painel Streamlit, a barra lateral mostra `LLM: anthropic · claude-3-5-sonnet-... · ✅ configurado` (ou `⚠️ sem chave` se faltar/placeholder).
-- Via CLI: `py -X utf8 agent.py enrich` — se a chave estiver ausente, o script informa qual variável preencher.
+```env
+VIGIL_API_KEY=sua_chave_compartilhada
+LLM_PROVIDER=groq
+GROQ_API_KEY=gsk_...sua_chave...
+ENABLE_SCHEDULER=true
+SEED_TEST_LEADS=false
+```
+
+**Exemplo completo no Render** (Anthropic — recomendado pelo case):
+
+```env
+VIGIL_API_KEY=sua_chave_compartilhada
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-api03-...sua_chave...
+ENABLE_SCHEDULER=true
+SEED_TEST_LEADS=true
+```
+
+#### Como validar se está tudo conectado
+
+- **API:** `GET https://vigil-summit-api.onrender.com/health` → `"status":"ok"`, `"llm_configurado": true` quando a chave LLM estiver correta no Render.
+- **Painel local:** com `VIGIL_API_URL` no `.env`, o topo exibe **`☁️ Modo nuvem · API: …`**. Sem isso, aparece **`💾 Modo local`** (SQLite desta máquina — não vê leads da LP online).
+- **Painel Streamlit Cloud:** **obrigatório** ter `VIGIL_API_URL` nos Secrets. Sem API configurada, o app **bloqueia** com instruções (não usa SQLite local enganoso). Com Secrets corretos, o topo mostra **`☁️ Modo nuvem · API: …`**.
+- **LLM no painel (barra lateral):** em modo nuvem, o status do LLM reflete a configuração da **API Render**; localmente, reflete o `.env`.
+- **CLI local:** `py -X utf8 agent.py enrich` — se a chave estiver ausente, o script informa qual variável preencher.
 
 **Deploy simples (produção):**
 
@@ -349,21 +362,24 @@ VIGIL_API_KEY = "mesma_chave_definida_no_Render"
    - **`VIGIL_API_KEY`** — mesma chave usada no Streamlit
    - **`LLM_PROVIDER`** + **`ANTHROPIC_API_KEY`** ou **`GROQ_API_KEY`** (agente roda na API)
    - **`ENABLE_SCHEDULER=true`** — régua automática diária (já no `render.yaml`)
+   - **`SEED_TEST_LEADS`** — `true` (default local) inclui `ramon@pareto.io` + 2 leads demo; `false` no Render de produção evita novos seeds (leads já gravados permanecem no disco)
    
-   Valide: `https://vigil-summit-api.onrender.com/health` → `"status":"ok"`.
-3. **Streamlit Cloud** — [vigilsummitagent.streamlit.app](https://vigilsummitagent.streamlit.app/). Secrets mínimos:
-
-```toml
-VIGIL_API_URL = "https://vigil-summit-api.onrender.com"
-VIGIL_API_KEY = "mesma_chave_definida_no_Render"
-APP_PASSWORD = "vigil2026"
-```
+   Valide: `https://vigil-summit-api.onrender.com/health` → `"status":"ok"`, `"llm_configurado": true`.
+3. **Streamlit Cloud** — [vigilsummitagent.streamlit.app](https://vigilsummitagent.streamlit.app/). Cole os Secrets de [`.streamlit/secrets.toml.example`](vigil_summit_agent/.streamlit/secrets.toml.example), salve e **Reboot app**. Confirme o banner **`☁️ Modo nuvem · API: …`** após o login.
 
 Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, engajar, demo). O LLM fica configurado **no Render**.
 
+#### Três bancos — não confundir
+
+| Ambiente | Onde ficam os leads da LP |
+|----------|---------------------------|
+| **Render API** | SQLite persistente no servidor Render |
+| **Streamlit Cloud** | **Não tem banco próprio** — lê a API via `VIGIL_API_URL` |
+| **Streamlit local** | SQLite local (`vigil_summit.db`) **ou** API, conforme `.env` |
+
 > **Entrega para a banca:** roteiro completo em [`ENTREGA.md`](ENTREGA.md).
 
-> **Nota:** localmente LP + painel compartilham o mesmo SQLite (`py run_dev.py`). Na nuvem, a API (Render) centraliza dados e agente.
+> **Nota:** localmente LP + painel compartilham o mesmo SQLite (`py run_dev.py`). Na nuvem, a API (Render) centraliza dados e agente; o painel Streamlit Cloud **sempre** aponta para a API.
 
 ---
 
@@ -374,14 +390,17 @@ Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, e
 - **Acesso ao painel (login):** o painel é protegido por **login de usuário + senha**. Na primeira execução, um usuário inicial é criado automaticamente:
   - **Usuário:** `admin` · **Senha:** `vigil2026` (ou o valor de `APP_PASSWORD`, se definido).
   - Na aba **"👤 Usuários"** é possível **criar e remover** outros usuários da equipe. As senhas são guardadas apenas como **hash PBKDF2-HMAC-SHA256 com salt** (nunca em texto puro). Há travas de segurança: não é possível remover o próprio usuário conectado nem deixar o painel sem nenhum acesso.
-- O banco já vem com **3 leads sintéticos** (seed), incluindo **`ramon@pareto.io`** com status `Inscrito`, conforme solicitado no case.
-- **Fluxo recomendado de teste:**
-  1. `py -X utf8 database.py` (cria o banco).
-  2. `py -m streamlit run app.py`, faça login (`admin` / `vigil2026`) e explore as abas.
-  3. Em **"🤖 Operar o agente"**, clique em **"Fase 2 · Enriquecer"** → veja os perfis preenchidos.
-  4. Clique em **"Fase 3 · Engajar + respostas"** → veja as mensagens geradas e leads virando `Confirmado`.
-  5. Use **"🎬 Demo ponta a ponta"** para rodar todo o funil de uma vez.
-  6. Na aba **"👥 Leads" → Detalhe do lead**, inspecione o histórico de interações e simule respostas.
+- O banco **local** (`py database.py`) vem com **3 leads sintéticos** (seed), incluindo **`ramon@pareto.io`**, conforme o case. No **Render**, o seed é controlado por `SEED_TEST_LEADS` (`false` no `render.yaml` de produção).
+- **Fluxo recomendado de teste (nuvem — igual à Pareto):**
+  1. Inscreva-se pela [LP online](https://irgomallis.github.io/vigil_summit_agent/).
+  2. Abra o [painel Streamlit](https://vigilsummitagent.streamlit.app/) → login `admin` / `vigil2026` → confirme **`☁️ Modo nuvem`** no topo.
+  3. Aba **Leads** → veja o lead da LP.
+  4. **Operar o agente** → Fases 2–4 ou **Demo ponta a ponta**.
+- **Fluxo local (demo ao vivo):**
+  1. `py -X utf8 database.py` (cria o banco + seed).
+  2. `py run_dev.py` ou `py -m streamlit run app.py` com `.env` preenchido.
+  3. LP em http://localhost:8080 · painel em http://localhost:8501.
+  4. Para ver leads da LP **online** no painel local, adicione `VIGIL_API_URL` + `VIGIL_API_KEY` no `.env` (mesma chave do Render).
 - O painel é organizado em abas: **Visão geral** (KPIs e funil de conversão), **Leads** (tabela e detalhe), **Operar o agente** (Fases 2–4), **Interações** (log completo) e **Usuários** (controle de acesso).
 - As ações de IA exigem chave LLM no **`.env` local** ou **no Render** (modo nuvem). Sem chave, o funil é exibido, mas geração fica indisponível.
 
@@ -404,6 +423,7 @@ Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, e
 | `linkedin_perfil` | TEXT | |
 | `sinais_interesse` | TEXT | **enriquecido** (dores) |
 | `origem` | TEXT | `LP_Organico` \| `Remarketing` (default `Remarketing`) |
+| `evento_id` | TEXT | identificador do evento (default `vigil_summit_2026`; prepara multi-evento) |
 | `status_funil` | TEXT | `Inscrito`/`Confirmado`/`Presente`/`Reunião Agendada` (default `Inscrito`) |
 | `data_inscricao` | DATETIME | default `CURRENT_TIMESTAMP` |
 | `updated_at` | DATETIME | atualizado por trigger em cada UPDATE |
@@ -433,7 +453,9 @@ Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, e
 
 ## 12. Limitações e decisões conscientes
 
-- **Captação da LP é real** via `POST /api/inscricao` (`api.py` → `insert_lead`, origem `LP_Organico`). LP e painel compartilham o mesmo SQLite localmente.
+- **Captação da LP é real** via `POST /api/inscricao` (`api.py` → `insert_lead`, origem `LP_Organico`). LP e painel compartilham o mesmo SQLite localmente; na nuvem, a LP grava no Render e o painel lê via `VIGIL_API_URL`.
+- **Streamlit Cloud exige modo nuvem** — sem `VIGIL_API_URL` nos Secrets, o painel bloqueia com instruções (evita SQLite isolado no container).
+- **Seed de leads de teste** — `database.py` e API local seedam `ramon@pareto.io` por padrão; no Render, `SEED_TEST_LEADS=false` desativa novos seeds (dados já existentes permanecem).
 - **Envio de mensagens é simulado** (persistido em `interaction_logs`), com canais desacoplados para integração futura.
 - **Enriquecimento é dedução do LLM**, não consulta a fontes externas (substituível sem mudar a interface).
 - **Confirmação de presença** usa frase exata **ou classificação de intenção via LLM** (`_confirma_presenca`).
@@ -460,11 +482,15 @@ Case - AI Engineer (2026)/
 └── vigil_summit_agent/
     ├── .env                   # segredos (fora do versionamento)
     ├── .env.example
+    ├── .streamlit/
+    │   ├── config.toml
+    │   └── secrets.toml.example   # modelo para Streamlit Cloud Secrets
     ├── database.py            # schema, seed e acesso ao SQLite
     ├── agent.py               # cérebro do agente (Fases 2, 3 e 4)
     ├── api.py                 # API FastAPI + agente remoto + scheduler
     ├── api_client.py          # cliente HTTP para o painel na nuvem
     ├── app.py                 # painel Streamlit (operação e monitoramento)
+    ├── run_dev.py             # LP + API + painel com um comando
     ├── requirements.txt
-    └── vigil_summit.db        # banco (gerado ao rodar database.py)
+    └── vigil_summit.db        # banco (gerado ao rodar database.py; gitignored)
 ```

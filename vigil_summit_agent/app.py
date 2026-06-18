@@ -636,6 +636,28 @@ st.caption("Funil de ponta a ponta: Captação → Enriquecimento → Engajament
 
 if api_client.modo_remoto():
     st.caption(f"☁️ Modo nuvem · API: `{api_client.base_url()}`")
+elif api_client.em_streamlit_cloud():
+    st.error(
+        "Este painel na nuvem **precisa** estar ligado à API do Render para mostrar "
+        "leads inscritos pela LP. Configure os **Secrets** em "
+        "[share.streamlit.io](https://share.streamlit.io) → seu app → **Settings → Secrets**."
+    )
+    st.code(
+        'VIGIL_API_URL = "https://vigil-summit-api.onrender.com"\n'
+        'VIGIL_API_KEY = "mesma_chave_definida_no_Render"\n'
+        'APP_PASSWORD = "vigil2026"',
+        language="toml",
+    )
+    st.info(
+        "Depois de salvar os Secrets, use **Reboot app**. "
+        "No topo deve aparecer **Modo nuvem · API: …** — só então os leads da LP entram aqui."
+    )
+    st.stop()
+else:
+    st.warning(
+        "💾 Modo local · lendo `vigil_summit.db` desta máquina. "
+        "Leads da LP online ficam na API Render; defina `VIGIL_API_URL` no `.env` para vê-los."
+    )
 
 render_sidebar()
 leads_df = load_leads_df()

@@ -412,7 +412,15 @@ py -X utf8 leads_simulacao.py
 py -X utf8 leads_simulacao.py --remoto
 ```
 
-Requer `VIGIL_API_URL` + `VIGIL_API_KEY` no `.env` (mesma chave do Render). Endpoint: `POST /api/admin/seed-simulation` (header `X-API-Key`).
+Requer `VIGIL_API_URL` + `VIGIL_API_KEY` no `.env`. Endpoint: `POST /api/admin/seed-simulation` (header `X-API-Key`). Faz **insert ou update** por e-mail (perfis completos com status e origem).
+
+**Fallback (API ainda sem redeploy):**
+
+```powershell
+py -X utf8 leads_simulacao.py --inscricao-remoto
+```
+
+Envia os 22 leads via `POST /api/inscricao` (todos como `Inscrito` / `LP_Organico`). Depois do redeploy, rode `--remoto` ou aguarde o startup com `SEED_SIMULATION_LEADS=true` para **atualizar** os perfis completos.
 
 ---
 

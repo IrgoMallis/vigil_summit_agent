@@ -344,13 +344,57 @@ SIMULATION_LEADS: list[dict] = [
 ]
 
 
+def _upsert_lead_simulacao(lead: dict) -> str:
+    """Insere ou atualiza lead de simulação por e-mail (idempotente)."""
+    conn = database.get_connection()
+    try:
+        existente = conn.execute(
+            "SELECT id FROM leads WHERE email = ?;",
+            (lead["email"],),
+        ).fetchone()
+        if existente is None:
+            conn.close()
+            return "inserido" if database.insert_lead(**lead) is not None else "ignorado"
+
+        conn.execute(
+            """
+            UPDATE leads SET
+                nome = ?, telefone = ?, cargo_declarado = ?, empresa = ?,
+                cargo_real = ?, setor = ?, tamanho_empresa = ?, linkedin_perfil = ?,
+                sinais_interesse = ?, origem = ?, status_funil = ?
+            WHERE email = ?;
+            """,
+            (
+                lead["nome"],
+                lead.get("telefone"),
+                lead.get("cargo_declarado"),
+                lead.get("empresa"),
+                lead.get("cargo_real"),
+                lead.get("setor"),
+                lead.get("tamanho_empresa"),
+                lead.get("linkedin_perfil"),
+                lead.get("sinais_interesse"),
+                lead.get("origem", "LP_Organico"),
+                lead.get("status_funil", "Inscrito"),
+                lead["email"],
+            ),
+        )
+        conn.commit()
+        return "atualizado"
+    finally:
+        conn.close()
+
+
 def seed_simulation_leads() -> dict[str, int]:
-    """Insere a base de simulação (idempotente por e-mail UNIQUE)."""
+    """Popula a base de simulação (insert ou update por e-mail)."""
     database.init_db()
-    inseridos = 0
+    inseridos = atualizados = 0
     for lead in SIMULATION_LEADS:
-        if database.insert_lead(**lead) is not None:
+        resultado = _upsert_lead_simulacao(lead)
+        if resultado == "inserido":
             inseridos += 1
+        elif resultado == "atualizado":
+            atualizados += 1
 
     conn = database.get_connection()
     try:
@@ -360,15 +404,59 @@ def seed_simulation_leads() -> dict[str, int]:
 
     resultado = {
         "inseridos": inseridos,
-        "ignorados": len(SIMULATION_LEADS) - inseridos,
+        "atualizados": atualizados,
         "catalogo": len(SIMULATION_LEADS),
         "total_no_banco": total,
     }
     print(
-        f"[simulacao] Inseridos: {resultado['inseridos']}/{resultado['catalogo']} "
-        f"| Total no banco: {resultado['total_no_banco']}"
+        f"[simulacao] Inseridos: {inseridos} | Atualizados: {atualizados} "
+        f"| Catálogo: {resultado['catalogo']} | Total no banco: {resultado['total_no_banco']}"
     )
     return resultado
+
+
+def enviar_inscricoes_remotas() -> dict[str, int]:
+    """Envia leads via POST /api/inscricao (campos básicos; útil antes do redeploy)."""
+    load_dotenv()
+    base = os.getenv("VIGIL_API_URL", "https://vigil-summit-api.onrender.com").strip().rstrip("/")
+    url = f"{base}/api/inscricao"
+    novos = duplicados = erros = 0
+    for lead in SIMULATION_LEADS:
+        payload = {
+            "nome": lead["nome"],
+            "email": lead["email"],
+            "cargo": lead["cargo_declarado"] or "Decisor",
+            "setor": lead["setor"] or "Tecnologia",
+            "empresa": lead["empresa"] or "Empresa",
+            "telefone": lead["telefone"] or "+55 11 90000-0000",
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=90):
+                novos += 1
+        except urllib.error.HTTPError as erro:
+            if erro.code == 409:
+                duplicados += 1
+            else:
+                erros += 1
+        except urllib.error.URLError:
+            erros += 1
+    resumo = {
+        "novos": novos,
+        "duplicados": duplicados,
+        "erros": erros,
+        "catalogo": len(SIMULATION_LEADS),
+    }
+    print(
+        f"[inscricao remota] Novos: {novos} | Já existiam: {duplicados} "
+        f"| Erros: {erros} | Catálogo: {resumo['catalogo']}"
+    )
+    return resumo
 
 
 def _enviar_para_api_remota() -> dict:
@@ -408,13 +496,22 @@ def main() -> None:
     parser.add_argument(
         "--remoto",
         action="store_true",
-        help="Envia seed para a API Render (VIGIL_API_URL + VIGIL_API_KEY)",
+        help="Seed completo na API Render (POST /api/admin/seed-simulation)",
+    )
+    parser.add_argument(
+        "--inscricao-remoto",
+        action="store_true",
+        help="Envia campos básicos via POST /api/inscricao (sem VIGIL_API_KEY)",
     )
     args = parser.parse_args()
 
     if args.remoto:
-        print(f"☁️  Enviando base de {len(SIMULATION_LEADS)} leads para a API...")
+        print(f"☁️  Seed completo de {len(SIMULATION_LEADS)} leads na API...")
         resultado = _enviar_para_api_remota()
+        print(json.dumps(resultado, ensure_ascii=False, indent=2))
+    elif args.inscricao_remoto:
+        print(f"☁️  Inscrição remota de {len(SIMULATION_LEADS)} leads...")
+        resultado = enviar_inscricoes_remotas()
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
     else:
         seed_simulation_leads()

@@ -11,6 +11,9 @@ Estudo_Vigil_Summit_Agent.pdf
 *.sqlite
 *.sqlite3
 
+# ---- Debug sessions (Cursor) ----
+debug-*.log
+
 # ---- Python ----
 __pycache__/
 *.py[cod]

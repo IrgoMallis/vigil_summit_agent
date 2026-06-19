@@ -186,7 +186,7 @@ def seed_test_leads() -> None:
             "empresa": "Pareto",
             "cargo_real": "Head of Growth",
             "setor": "Marketing / Tecnologia",
-            "tamanho_empresa": "51-200",
+            "tamanho_empresa": "+200 funcionários",
             "linkedin_perfil": "https://www.linkedin.com/in/ramon-pareto",
             "sinais_interesse": "Baixou material sobre IA aplicada a vendas",
             "origem": "LP_Organico",
@@ -226,6 +226,16 @@ def seed_test_leads() -> None:
     for lead in test_leads:
         if insert_lead(**lead) is not None:
             inserted += 1
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE leads SET tamanho_empresa = ? WHERE email = ?;",
+            ("+200 funcionários", "ramon@pareto.io"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     print(f"[seed] Leads de teste inseridos: {inserted}/{len(test_leads)}")
 

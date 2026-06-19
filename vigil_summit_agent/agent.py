@@ -27,6 +27,7 @@ Uso via CLI:
 import os
 import sys
 import json
+import re
 import sqlite3
 from datetime import date, datetime, timedelta
 
@@ -94,6 +95,17 @@ EVENT_TOTAL_SEATS = 120
 
 # Frase exata do gatilho de compromisso (neurociência: commitment & consistency).
 CONFIRMATION_PHRASE = "Eu irei ao evento"
+
+# Heurística offline para confirmação quando LLM indisponível.
+_NEGATIVAS_PRESENCA = (
+    "não vou", "nao vou", "não poderei", "nao poderei", "cancelar", "desistir",
+)
+_PALAVRAS_PRESENCA = (
+    "vou", "confirmo", "estarei", "compareço", "compareco", "pode contar",
+)
+_PALAVRAS_REUNIAO = (
+    "reunião", "reuniao", "agendar", "marcar", "confirmo", "pode ser", "funciona",
+)
 
 # Largura dos separadores impressos no terminal.
 _SECTION_WIDTH = 64
@@ -331,6 +343,33 @@ def get_last_interaction(lead_id: int) -> sqlite3.Row | None:
     )
 
 
+def get_interaction_history(lead_id: int, limit: int = 8) -> list[sqlite3.Row]:
+    """Retorna as últimas interações do lead (mais recente primeiro)."""
+    return _fetch_all(
+        """
+        SELECT fase_funil, canal, tipo_mensagem, conteudo_enviado, resposta_lead, data_envio
+        FROM interaction_logs
+        WHERE lead_id = ?
+        ORDER BY id DESC
+        LIMIT ?;
+        """,
+        (lead_id, limit),
+    )
+
+
+def _lead_respondeu_apos_tipo(lead_id: int, tipo_mensagem: str) -> bool:
+    """True se a última interação desse tipo teve resposta do lead."""
+    row = _fetch_one(
+        """
+        SELECT resposta_lead FROM interaction_logs
+        WHERE lead_id = ? AND tipo_mensagem = ?
+        ORDER BY id DESC LIMIT 1;
+        """,
+        (lead_id, tipo_mensagem),
+    )
+    return bool(row and str(row["resposta_lead"] or "").strip())
+
+
 # ======================================================================
 # UTILITÁRIOS
 # ======================================================================
@@ -372,6 +411,26 @@ def _parse_enrichment_json(raw_text: str) -> dict:
     if "linkedin_perfil" in data:
         resultado["linkedin_perfil"] = data["linkedin_perfil"]
     return resultado
+
+
+def _parse_porte_minimo(porte: str | None) -> int | None:
+    nums = re.findall(r"\d+", porte or "")
+    return max(int(n) for n in nums) if nums else None
+
+
+def lead_atende_icp(lead: sqlite3.Row) -> tuple[bool, str]:
+    """Validação soft do ICP do case (+200 func. e cargo de decisor)."""
+    porte = _parse_porte_minimo(lead["tamanho_empresa"])
+    if porte is not None and porte < 200:
+        return False, f"Porte estimado ({lead['tamanho_empresa']}) abaixo do ICP (+200)."
+    cargo = (lead["cargo_real"] or lead["cargo_declarado"] or "").lower()
+    decisor = any(
+        termo in cargo
+        for termo in ("ciso", "cto", "diretor", "chief", "vp ", "head of")
+    )
+    if not decisor:
+        return False, "Cargo não indica decisor de segurança/TI."
+    return True, "ICP ok"
 
 
 # ======================================================================
@@ -459,6 +518,13 @@ def run_enrichment_pipeline() -> None:
             if enriquecimento.get("linkedin_perfil"):
                 print(f"      • linkedin_perfil ..: {enriquecimento['linkedin_perfil']}")
             update_lead_enrichment(lead["id"], enriquecimento)
+            lead_atualizado = get_lead_by_id(lead["id"])
+            if lead_atualizado is not None:
+                icp_ok, motivo_icp = lead_atende_icp(lead_atualizado)
+                if icp_ok:
+                    print("   ✅ ICP do case: perfil alinhado (+200 / decisor).")
+                else:
+                    print(f"   ⚠️  ICP do case: {motivo_icp}")
             print("   💾 Banco atualizado com sucesso.\n")
             sucessos += 1
         except Exception as erro:
@@ -573,6 +639,25 @@ def _instrucao_sem_resposta_anterior(lead_id: int) -> str:
     )
 
 
+def _historico_para_prompt(lead_id: int) -> str:
+    """Resume interações anteriores para continuidade de tom nas réguas."""
+    linhas = get_interaction_history(lead_id)
+    if not linhas:
+        return "HISTÓRICO: nenhuma interação anterior."
+    blocos = []
+    for row in reversed(linhas):
+        resposta = (row["resposta_lead"] or "").strip() or "— sem resposta —"
+        trecho = (row["conteudo_enviado"] or "")[:180].replace("\n", " ")
+        blocos.append(
+            f"- [{row['fase_funil']}] {row['tipo_mensagem']} ({row['canal']}): "
+            f"enviado={trecho}... | resposta={resposta}"
+        )
+    return (
+        "HISTÓRICO DE INTERAÇÕES (use para continuidade; não repita o mesmo CTA):\n"
+        + "\n".join(blocos)
+    )
+
+
 def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
     """
     Gera uma mensagem personalizada via LLM para uma etapa da régua.
@@ -604,6 +689,7 @@ def generate_personalized_message(lead: sqlite3.Row, step: dict) -> dict:
 
     user_prompt = (
         f"PERFIL DO LEAD:\n{_perfil_do_lead(lead)}\n\n"
+        f"{_historico_para_prompt(lead['id'])}\n\n"
         f"{_instrucao_de_segmento(_segmento_do_lead(lead))}\n\n"
         f"OBJETIVO DESTA MENSAGEM:\n{step['objetivo']}{_instrucao_de_compromisso(step)}"
         f"{_instrucao_se_nao_confirmou(lead, step)}"
@@ -802,8 +888,13 @@ def _registrar_resposta(lead_id: int, resposta: str) -> None:
 
 
 def _confirma_presenca(resposta: str) -> bool:
-    """Confirma presença por frase exata ou classificação de intenção via LLM."""
-    if resposta.strip().lower() == CONFIRMATION_PHRASE.lower():
+    """Confirma presença por frase exata, heurística ou classificação via LLM."""
+    texto = resposta.strip().lower()
+    if texto == CONFIRMATION_PHRASE.lower():
+        return True
+    if any(neg in texto for neg in _NEGATIVAS_PRESENCA):
+        return False
+    if any(palavra in texto for palavra in _PALAVRAS_PRESENCA):
         return True
     if not llm_configurado():
         return False
@@ -821,26 +912,58 @@ def _confirma_presenca(resposta: str) -> bool:
         return False
 
 
+def _confirma_reuniao(resposta: str) -> bool:
+    """Detecta aceite de reunião comercial pós-evento."""
+    texto = resposta.strip().lower()
+    if not texto:
+        return False
+    if any(palavra in texto for palavra in _PALAVRAS_REUNIAO):
+        return True
+    if not llm_configurado():
+        return False
+    try:
+        raw = _chat(
+            "Classifique se o lead aceita agendar reunião. "
+            "Responda APENAS JSON: {\"aceita\": true|false}.",
+            f"Mensagem: {resposta.strip()}",
+            64,
+            0.0,
+        )
+        return bool(_extract_json(raw).get("aceita"))
+    except Exception:
+        return False
+
+
 def receive_lead_response(lead_id: int, resposta: str) -> None:
     """
-    Registra a resposta de um lead (simulada) e, se for a frase de compromisso,
-    promove o lead de 'Inscrito' para 'Confirmado'.
+    Registra a resposta de um lead (simulada) e promove o funil quando aplicável:
+    Inscrito + confirmação → Confirmado; Presente + aceite → Reunião Agendada.
     """
     lead = get_lead_by_id(lead_id)
     if lead is None:
         print(f"⚠️  Lead #{lead_id} não encontrado.")
         return
 
+    status_antes = lead["status_funil"]
     _registrar_resposta(lead_id, resposta)
     print(f"📩 Lead #{lead_id} ({lead['nome']}) respondeu: \"{resposta}\"")
 
-    if _confirma_presenca(resposta):
+    if status_antes == STATUS_INSCRITO and _confirma_presenca(resposta):
         update_lead_status(lead_id, STATUS_CONFIRMADO)
-        print("   ✅ Gatilho de compromisso acionado! "
-              f"Status: '{STATUS_INSCRITO}' → '{STATUS_CONFIRMADO}'.\n")
+        print(
+            f"   ✅ Confirmação registrada! Status: "
+            f"'{STATUS_INSCRITO}' → '{STATUS_CONFIRMADO}'.\n"
+        )
+    elif status_antes == STATUS_PRESENTE and _confirma_reuniao(resposta):
+        update_lead_status(lead_id, STATUS_REUNIAO_AGENDADA)
+        print(
+            f"   ✅ Reunião aceita! Status: "
+            f"'{STATUS_PRESENTE}' → '{STATUS_REUNIAO_AGENDADA}'.\n"
+        )
     else:
-        print("   ↪️  Resposta não confirma presença. Status mantido como "
-              f"'{lead['status_funil']}'.\n")
+        print(
+            f"   ↪️  Resposta registrada; status mantido como '{status_antes}'.\n"
+        )
 
 
 def run_engagement_with_simulated_responses() -> None:
@@ -919,6 +1042,14 @@ def _processar_steps_do_lead(lead: sqlite3.Row, steps: list[dict], rotulo: str) 
     """Executa uma lista de etapas pós-evento para um lead, com tratamento de erro."""
     print(f"👤 [{rotulo}] Lead #{lead['id']} — {lead['nome']} ({lead['empresa']})")
     for step in steps:
+        if (
+            step.get("tipo_mensagem") == "Ultima_Chamada"
+            and _lead_respondeu_apos_tipo(lead["id"], "Convite_Reuniao")
+        ):
+            print(
+                "   ⏭️  Pulando Ultima_Chamada — lead já respondeu ao Convite_Reuniao."
+            )
+            continue
         try:
             _processar_step(lead, step, FASE_POS_EVENTO)
         except Exception as erro:
@@ -975,6 +1106,22 @@ def _simular_dia_do_evento() -> None:
     print()
 
 
+def _simular_respostas_reuniao() -> None:
+    """Simula aceite de reunião para fechar o funil até Reunião Agendada."""
+    presentes = get_leads_by_status(STATUS_PRESENTE)
+    if not presentes:
+        return
+    print("🤖 Simulando respostas de reunião pós-evento...\n")
+    for indice, lead in enumerate(presentes):
+        if indice == 0:
+            receive_lead_response(
+                lead["id"],
+                "Confirmo a reunião, terça às 10h funciona.",
+            )
+        else:
+            receive_lead_response(lead["id"], "Ainda estou avaliando internamente.")
+
+
 def run_full_funnel_demo() -> None:
     """
     Demonstra o funil completo numa única execução (Fases 2 → 3 → 4),
@@ -989,6 +1136,10 @@ def run_full_funnel_demo() -> None:
     run_engagement_with_simulated_responses()
     _simular_dia_do_evento()
     run_post_event_sequence(simular_sequencia_completa=True)
+    _simular_respostas_reuniao()
+
+    reunioes = len(get_leads_by_status(STATUS_REUNIAO_AGENDADA))
+    print(f"\n🏁 Funil concluído — {reunioes} lead(s) em '{STATUS_REUNIAO_AGENDADA}'.\n")
 
     print("\n" + "#" * _SECTION_WIDTH)
     print("# DEMONSTRAÇÃO CONCLUÍDA — verifique a tabela interaction_logs")

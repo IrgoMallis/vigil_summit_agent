@@ -22,7 +22,7 @@ Documento de entrega para o time de avaliação da **Pareto** (Vigil.AI).
 |---------|---------|-------|
 | **Painel Streamlit** | `admin` | `vigil2026` |
 
-Lead de teste pré-carregado: **`ramon@pareto.io`** (status `Inscrito`) — presente no seed **local** (`database.py`) e opcionalmente na API (`SEED_TEST_LEADS=true`). No Render de produção, `SEED_TEST_LEADS=false` (já no `render.yaml`).
+Lead de teste pré-carregado: **`ramon@pareto.io`** — faz parte da base de **22 leads** em [`leads_simulacao.py`](vigil_summit_agent/leads_simulacao.py). No Render, `SEED_SIMULATION_LEADS=true` (já no `render.yaml`).
 
 ---
 
@@ -35,8 +35,9 @@ Lead de teste pré-carregado: **`ramon@pareto.io`** (status `Inscrito`) — pres
    - **`VIGIL_API_KEY`** — senha compartilhada com o Streamlit (ex.: `vigil-api-2026`)
    - **`LLM_PROVIDER`** — `anthropic` ou `groq`
    - **`ANTHROPIC_API_KEY`** ou **`GROQ_API_KEY`** — chave do provedor escolhido
-   - **`SEED_TEST_LEADS`** — `false` para produção (só leads reais da LP); `true` se quiser `ramon@pareto.io` na API
-3. Valide: `GET https://vigil-summit-api.onrender.com/health` → `"status": "ok"`, `"llm_configurado": true`.
+   - **`SEED_SIMULATION_LEADS`** — `true` (popula 22 leads no startup; já no blueprint)
+3. Valide: `GET https://vigil-summit-api.onrender.com/health` → `"status": "ok"`.
+4. **(Opcional)** Re-seed manual: `POST /api/admin/seed-simulation` com header `X-API-Key`, ou `py -X utf8 leads_simulacao.py --remoto`.
 
 ### 2. Streamlit Cloud
 
@@ -57,7 +58,7 @@ Salve → **Reboot app** → após login, confirme no topo: **`☁️ Modo nuvem
 ## Roteiro de teste (15 min)
 
 1. **Captação:** inscreva-se pela [LP](https://irgomallis.github.io/vigil_summit_agent/) → confirme sucesso.
-2. **Painel:** login em [Streamlit](https://vigilsummitagent.streamlit.app/) → confirme **`☁️ Modo nuvem`** no topo → aba **Leads** → veja o novo lead.
+2. **Painel:** login em [Streamlit](https://vigilsummitagent.streamlit.app/) → confirme **`☁️ Modo nuvem`** → aba **Leads** → base de **22+** leads.
 3. **Enriquecimento:** aba **Operar o agente** → **Fase 2 · Enriquecer**.
 4. **Engajamento:** **Fase 3 · Engajar + respostas** → leads viram `Confirmado`.
 5. **Demo completa:** **🎬 Demo ponta a ponta** → funil inteiro em um clique.
@@ -98,7 +99,7 @@ Instruções detalhadas no [README § Integração com LLM](https://github.com/I
 - Painel com KPIs, funil, operação do agente e login multiusuário
 - Documentação técnica completa (README — 6 seções + bônus escala)
 - Scheduler automático de réguas na API (`ENABLE_SCHEDULER=true` no Render)
-- Painel Streamlit Cloud exige `VIGIL_API_URL` (modo nuvem); seed configurável via `SEED_TEST_LEADS`
+- Base de **22 leads** de simulação (`leads_simulacao.py`) + seed remoto (`SEED_SIMULATION_LEADS` / `POST /api/admin/seed-simulation`)
 
 ---
 

@@ -362,7 +362,8 @@ SEED_TEST_LEADS=true
    - **`VIGIL_API_KEY`** — mesma chave usada no Streamlit
    - **`LLM_PROVIDER`** + **`ANTHROPIC_API_KEY`** ou **`GROQ_API_KEY`** (agente roda na API)
    - **`ENABLE_SCHEDULER=true`** — régua automática diária (já no `render.yaml`)
-   - **`SEED_TEST_LEADS`** — `true` (default local) inclui `ramon@pareto.io` + 2 leads demo; `false` no Render de produção evita novos seeds (leads já gravados permanecem no disco)
+   - **`SEED_TEST_LEADS`** — `true` (default local) inclui a base via `database.py`
+   - **`SEED_SIMULATION_LEADS`** — `true` no Render (já no `render.yaml`) popula **22 leads** de demonstração no startup
    
    Valide: `https://vigil-summit-api.onrender.com/health` → `"status":"ok"`, `"llm_configurado": true`.
 3. **Streamlit Cloud** — [vigilsummitagent.streamlit.app](https://vigilsummitagent.streamlit.app/). Cole os Secrets de [`.streamlit/secrets.toml.example`](vigil_summit_agent/.streamlit/secrets.toml.example), salve e **Reboot app**. Confirme o banner **`☁️ Modo nuvem · API: …`** após o login.
@@ -381,6 +382,38 @@ Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, e
 
 > **Nota:** localmente LP + painel compartilham o mesmo SQLite (`py run_dev.py`). Na nuvem, a API (Render) centraliza dados e agente; o painel Streamlit Cloud **sempre** aponta para a API.
 
+#### Base de leads de simulação (22 personas)
+
+Catálogo em [`leads_simulacao.py`](vigil_summit_agent/leads_simulacao.py) — idempotente por e-mail (`UNIQUE`).
+
+| Dimensão | Variação |
+|----------|----------|
+| **Status** | Inscrito · Confirmado · Presente · Reunião Agendada |
+| **Origem** | `LP_Organico` · `Remarketing` |
+| **Setores** | Todos da LP + Outro |
+| **Cargos** | CISO, CTO, Diretor de TI, VP Segurança, etc. |
+| **Enriquecimento** | Mix enriquecido + 4 leads pendentes de Fase 2 |
+
+Inclui **`ramon@pareto.io`** (case Pareto).
+
+**Local:**
+
+```powershell
+cd vigil_summit_agent
+py -X utf8 leads_simulacao.py
+# ou: py -X utf8 database.py
+```
+
+**Render (automático):** `SEED_SIMULATION_LEADS=true` no `render.yaml` → seed no startup da API após deploy.
+
+**Render (manual, após deploy):**
+
+```powershell
+py -X utf8 leads_simulacao.py --remoto
+```
+
+Requer `VIGIL_API_URL` + `VIGIL_API_KEY` no `.env` (mesma chave do Render). Endpoint: `POST /api/admin/seed-simulation` (header `X-API-Key`).
+
 ---
 
 ## 10. Como testar (acesso para a Pareto)
@@ -390,11 +423,11 @@ Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, e
 - **Acesso ao painel (login):** o painel é protegido por **login de usuário + senha**. Na primeira execução, um usuário inicial é criado automaticamente:
   - **Usuário:** `admin` · **Senha:** `vigil2026` (ou o valor de `APP_PASSWORD`, se definido).
   - Na aba **"👤 Usuários"** é possível **criar e remover** outros usuários da equipe. As senhas são guardadas apenas como **hash PBKDF2-HMAC-SHA256 com salt** (nunca em texto puro). Há travas de segurança: não é possível remover o próprio usuário conectado nem deixar o painel sem nenhum acesso.
-- O banco **local** (`py database.py`) vem com **3 leads sintéticos** (seed), incluindo **`ramon@pareto.io`**, conforme o case. No **Render**, o seed é controlado por `SEED_TEST_LEADS` (`false` no `render.yaml` de produção).
+- O banco local vem com **22 leads de simulação** (`leads_simulacao.py`), incluindo **`ramon@pareto.io`**. No **Render**, `SEED_SIMULATION_LEADS=true` popula a mesma base no startup (idempotente).
 - **Fluxo recomendado de teste (nuvem — igual à Pareto):**
   1. Inscreva-se pela [LP online](https://irgomallis.github.io/vigil_summit_agent/).
   2. Abra o [painel Streamlit](https://vigilsummitagent.streamlit.app/) → login `admin` / `vigil2026` → confirme **`☁️ Modo nuvem`** no topo.
-  3. Aba **Leads** → veja o lead da LP.
+  3. Aba **Leads** → veja a base de simulação (22+) e novos inscritos da LP.
   4. **Operar o agente** → Fases 2–4 ou **Demo ponta a ponta**.
 - **Fluxo local (demo ao vivo):**
   1. `py -X utf8 database.py` (cria o banco + seed).
@@ -455,7 +488,7 @@ Com `VIGIL_API_URL`, o painel **lê e opera** leads da LP via API (enriquecer, e
 
 - **Captação da LP é real** via `POST /api/inscricao` (`api.py` → `insert_lead`, origem `LP_Organico`). LP e painel compartilham o mesmo SQLite localmente; na nuvem, a LP grava no Render e o painel lê via `VIGIL_API_URL`.
 - **Streamlit Cloud exige modo nuvem** — sem `VIGIL_API_URL` nos Secrets, o painel bloqueia com instruções (evita SQLite isolado no container).
-- **Seed de leads de teste** — `database.py` e API local seedam `ramon@pareto.io` por padrão; no Render, `SEED_TEST_LEADS=false` desativa novos seeds (dados já existentes permanecem).
+- **Seed de leads de simulação** — `leads_simulacao.py` (22 personas); Render usa `SEED_SIMULATION_LEADS=true`; re-seed manual via `POST /api/admin/seed-simulation`.
 - **Envio de mensagens é simulado** (persistido em `interaction_logs`), com canais desacoplados para integração futura.
 - **Enriquecimento é dedução do LLM**, não consulta a fontes externas (substituível sem mudar a interface).
 - **Confirmação de presença** usa frase exata **ou classificação de intenção via LLM** (`_confirma_presenca`).
@@ -486,6 +519,7 @@ Case - AI Engineer (2026)/
     │   ├── config.toml
     │   └── secrets.toml.example   # modelo para Streamlit Cloud Secrets
     ├── database.py            # schema, seed e acesso ao SQLite
+    ├── leads_simulacao.py     # catálogo de 22 leads + seed local/remoto
     ├── agent.py               # cérebro do agente (Fases 2, 3 e 4)
     ├── api.py                 # API FastAPI + agente remoto + scheduler
     ├── api_client.py          # cliente HTTP para o painel na nuvem

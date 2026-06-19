@@ -176,68 +176,10 @@ def insert_lead(
 
 
 def seed_test_leads() -> None:
-    """Insere 3 leads sintéticos para testes (idempotente via e-mail UNIQUE)."""
-    test_leads = [
-        {
-            "nome": "Ramon Souza",
-            "email": "ramon@pareto.io",
-            "telefone": "+55 11 91234-5678",
-            "cargo_declarado": "Head of Growth",
-            "empresa": "Pareto",
-            "cargo_real": "Head of Growth",
-            "setor": "Marketing / Tecnologia",
-            "tamanho_empresa": "+200 funcionários",
-            "linkedin_perfil": "https://www.linkedin.com/in/ramon-pareto",
-            "sinais_interesse": "Baixou material sobre IA aplicada a vendas",
-            "origem": "LP_Organico",
-            "status_funil": "Inscrito",
-        },
-        {
-            "nome": "Mariana Lima",
-            "email": "mariana.lima@techcorp.com",
-            "telefone": "+55 21 99876-5432",
-            "cargo_declarado": "Diretora de Operações",
-            "empresa": "TechCorp",
-            "cargo_real": "COO",
-            "setor": "SaaS B2B",
-            "tamanho_empresa": "201-500",
-            "linkedin_perfil": "https://www.linkedin.com/in/mariana-lima",
-            "sinais_interesse": "Participou de webinar anterior; abriu 3 e-mails",
-            "origem": "Remarketing",
-            "status_funil": "Confirmado",
-        },
-        {
-            "nome": "Carlos Mendes",
-            "email": "carlos.mendes@varejomais.com.br",
-            "telefone": "+55 31 98765-1234",
-            "cargo_declarado": "Gerente de Vendas",
-            "empresa": "Varejo Mais",
-            "cargo_real": "Gerente Comercial Sênior",
-            "setor": "Varejo",
-            "tamanho_empresa": "1000+",
-            "linkedin_perfil": "https://www.linkedin.com/in/carlos-mendes",
-            "sinais_interesse": "Clicou no link de inscrição via WhatsApp",
-            "origem": "Remarketing",
-            "status_funil": "Inscrito",
-        },
-    ]
+    """Insere leads mínimos do case (delega à base completa de simulação)."""
+    from leads_simulacao import seed_simulation_leads
 
-    inserted = 0
-    for lead in test_leads:
-        if insert_lead(**lead) is not None:
-            inserted += 1
-
-    conn = get_connection()
-    try:
-        conn.execute(
-            "UPDATE leads SET tamanho_empresa = ? WHERE email = ?;",
-            ("+200 funcionários", "ramon@pareto.io"),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    print(f"[seed] Leads de teste inseridos: {inserted}/{len(test_leads)}")
+    seed_simulation_leads()
 
 
 # ----------------------------------------------------------------------

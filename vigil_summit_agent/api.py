@@ -127,10 +127,20 @@ def _seed_habilitado() -> bool:
     }
 
 
+def _seed_simulacao_habilitado() -> bool:
+    return os.getenv("SEED_SIMULATION_LEADS", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 @app.on_event("startup")
 def startup() -> None:
     database.init_db()
-    if _seed_habilitado():
+    if _seed_simulacao_habilitado():
+        from leads_simulacao import seed_simulation_leads
+
+        seed_simulation_leads()
+    elif _seed_habilitado():
         database.seed_test_leads()
     else:
         print("[seed] Leads de teste desativados (SEED_TEST_LEADS=false).")
@@ -153,6 +163,14 @@ def health():
         "llm_configurado": agent.llm_configurado(),
         "scheduler": ENABLE_SCHEDULER,
     }
+
+
+@app.post("/api/admin/seed-simulation", dependencies=[Depends(_verificar_api_key)])
+def seed_simulation_remoto():
+    """Popula (idempotente) a base de 22 leads de simulação no banco da API."""
+    from leads_simulacao import seed_simulation_leads
+
+    return {"ok": True, **seed_simulation_leads()}
 
 
 @app.post("/api/inscricao")

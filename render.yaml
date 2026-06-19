@@ -24,3 +24,5 @@ services:
         sync: false
       - key: SEED_TEST_LEADS
         value: "false"
+      - key: SEED_SIMULATION_LEADS
+        value: "true"

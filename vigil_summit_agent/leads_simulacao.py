@@ -353,7 +353,6 @@ def _upsert_lead_simulacao(lead: dict) -> str:
             (lead["email"],),
         ).fetchone()
         if existente is None:
-            conn.close()
             return "inserido" if database.insert_lead(**lead) is not None else "ignorado"
 
         conn.execute(
